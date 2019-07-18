@@ -21,3 +21,6 @@ Peng, Junhua; Yamada, Toshihiko; Yoo, Ji Hye; Yu, Chang Yeon; Zhao, Hua;
 Long, Stephen P.; Sacks, Erik J. (2019): RAD-seq genotypes for a
 *Miscanthus sinensis* diversity panel. University of Illinois at Urbana-Champaign.
 https://doi.org/10.13012/B2IDB-1402948_V1
+
+Because the original file was too large for GitHub, Msi_genotypes2.vcf.bgz has
+been replaced with Msi_genotypes2_small.vcf.bgz.
