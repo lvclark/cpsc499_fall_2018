@@ -1,0 +1,150 @@
+---
+title: "Lab 6"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Revisiting the file conversion last week
+
+Last week you wrote some code to import data from a VCF into a data frame,
+then convert it to numbers to export to a CSV.
+
+```{r echo = TRUE}
+geno_tab <- read.table("Msinensis_chr01genes_filtered.vcf", header = TRUE, sep = "\t", 
+                       stringsAsFactors = FALSE, comment.char = "", skip = 12)
+```
+
+```{r eval = FALSE, echo = TRUE}
+# remove unwanted columns
+geno_tab2 <- geno_tab[,-(6:9)]
+# reformat genotype cells
+for(i in 6:ncol(geno_tab)){
+  geno_tab2[[i]] <- sub("^\\.:.*", "", geno_tab2[[i]])
+  geno_tab2[[i]] <- sub("^0/0:.*", "0", geno_tab2[[i]])
+  geno_tab2[[i]] <- sub("^0/1:.*", "1", geno_tab2[[i]])
+  geno_tab2[[i]] <- sub("^1/0:.*", "1", geno_tab2[[i]])
+  geno_tab2[[i]] <- sub("^1/1:.*", "2", geno_tab2[[i]])
+}
+write.csv(geno_tab, file = "genotypes.csv")
+```
+
+We made a loop through the columns, but it would be possible instead to use `apply`.
+
+## Building a function to run on a single column
+
+To use `apply`, we first need a function that we will pass to it.  
+
+**Question 1 to turn in:** Repurpose your
+code from last week (i.e. the above code) to make a function designed to work on
+just one column of the data frame.  The should accept a character vector,
+representing one column, as its argument, and should return a numeric or integer
+vector of the same length containing `0`, `1`, `2`, or `NA`.  (Not a character 
+vector like last week.)
+
+```{r}
+convert_column <- function(vect){
+  # set up a numeric vector the same length as the input
+  out <- numeric(length(vect))
+  # fill in the vector
+  out[grep("^\\.:.*", vect)] <- NA
+  out[grep("^0/0:.*", vect)] <- 0
+  out[grep("^(0/1|1/0):.*", vect)] <- 1
+  out[grep("^1/1:.*", vect)] <- 2
+  
+  return(out)
+}
+
+# Here's an alternative:
+convert_column <- function(vect){
+  # just keep the first portion of the string
+  vect <- sub(":.*", "", vect)
+  # make a conversion vector
+  conv <- c(NA, 0, 1, 1, 2)
+  names(conv) <- c(".", "0/0", "0/1", "1/0", "1/1")
+  
+  return(unname(conv[vect]))
+}
+```
+
+```{r echo = TRUE}
+testvect <- geno_tab[1:30,12]
+testvect
+convert_column(testvect)
+```
+
+**Hint**
+
+It is possible to fill in a vector by indexing, like this:
+
+```{r echo = TRUE}
+testnum <- numeric(5)
+testnum
+testnum[c(2, 4)] <- 2
+testnum
+```
+
+## Using `apply` with your function
+
+**Question 2 to turn in:** Now use `apply` to run your function on all of the 
+genotype columns in your data frame.  Then use `cbind` to make a new data 
+frame containing the SNP metadata columns (the first five columns of 
+`geno_tab`) and the numeric columns returned by `apply`.
+
+```{r}
+# get numeric genotypes
+numgen <- apply(geno_tab[,-(1:9)], 2, convert_column)
+# combine columns
+geno_tab3 <- cbind(geno_tab[,1:5], numgen)
+```
+
+```{r echo = TRUE}
+# example results
+geno_tab3[1:10,1:8]
+```
+
+## Do it faster
+
+Running `apply` still takes a few moments, because internally it is running a 
+loop.  But what if we ran the conversion function on a matrix instead, because
+a matrix is basically one vector?
+
+```{r echo = TRUE}
+# get a matrix of just the genotype columns
+geno_mat <- as.matrix(geno_tab[,-(1:9)])
+# convert to numeric
+geno_mat_num <- convert_column(geno_mat)
+```
+
+What problem is there with the output?
+
+```{r}
+# The matrix got turned into a vector, and has lost its dimension attributes.
+is.matrix(geno_mat_num)
+```
+
+**Question 3 to turn in:** Write a function to convert a matrix like this without using `apply`.
+
+```{r}
+convert_matrix <- function(mat){
+  # first convert strings to numbers
+  outnum <- convert_column(mat)
+  # then put it back into a matrix
+  outmat <- matrix(outnum, nrow = nrow(mat), ncol = ncol(mat),
+                   dimnames = dimnames(mat))
+  return(outmat)
+}
+```
+
+```{r echo = TRUE}
+geno_mat_num <- convert_matrix(geno_mat)
+geno_mat_num[1:10,1:6]
+```
+
+**Hint**
+
+Internally, it could be helpful for the function to call your 
+`convert_column`, as well as the `matrix` function.
+

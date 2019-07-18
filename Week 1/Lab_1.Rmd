@@ -1,0 +1,316 @@
+---
+title: 'Lab 1: Subsetting and exploring data'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = FALSE)
+```
+
+## Data for today
+
+In addition to data that you can import from a spreadsheet, there are many
+example datasets that come installed with R and its packages.  To see a list of
+these datasets:
+
+```{r}
+data()
+```
+
+Today we'll explore the `CO2` dataset.  We'll also use the `data` function to
+load it into our environment.
+
+```{r eval = TRUE}
+data(CO2)
+```
+
+Since this is an example dataset, it also has a help page.
+
+```{r}
+?CO2
+```
+
+Take a moment to view the dataset (by printing the whole thing to the console,
+or clicking it in the Environment pane).  You can also use the `str` function
+to learn more about it.  There is some information printed out by `str` that
+you might not understand yet, but other information that is useful.  What are
+the column names, and what type of data does each contain?  How many 
+observations are there?
+
+Make a new project in RStudio.  Create a script file in the main folder that
+will contain all of your work for today.  Create a folder called "data". Save
+a copy of the `CO2` data frame to a CSV in that folder (so we can pretend that
+we're working with our own data), and add a line to your script to read the
+data in from CSV.  As you work, be sure to add some comments to your script
+to remind yourself of what is happening.
+
+## Installing and loading a package
+
+We'll try out two methods for exploring and subsetting our data today.  The R
+"base" has a system that is very flexible.  On the other hand, the Tidyverse
+package `dplyr` has a syntax that is a bit more human readable and easier for
+beginners.  Try them both out and use whichever you prefer (or some combination
+of the two).
+
+To install `dplyr` (or any other R package), you only need to run 
+`install.packages` once.  You might type this command directly into the console,
+or put it into your script but comment it out so that you don't accidentally
+run it again.
+
+```{r eval = FALSE}
+install.packages("dplyr")
+```
+
+To load a package into your environment, use the `library` function.  Generally
+it is good practice to make all calls to `library` at the very top of your
+script, so that if you are using the script on another computer, or sharing it
+with someone else, it is easy to see what packages are required.
+
+```{r}
+library(dplyr)
+```
+
+The package name has to be in quotes for `install.packages`, but not for
+`library`.  There isn't a very good reason for this; it is one of R's quirks.
+
+To pull up a tutorial on `dplyr`, run
+
+```{r}
+vignette("dplyr")
+```
+
+Many packages have "vignette" tutorials in addition to the documentation pages
+for individual functions.  Later in the class when you learn to make your own
+packages, you will also learn to make vignettes.
+
+## Filtering rows of a data frame
+
+Say we only want to look at the plants from Mississippi.  If we run
+
+```{r}
+CO2$Type == "Mississippi"
+```
+
+we get a Boolean vector, with `TRUE` for rows from Mississippi and `FALSE` for
+rows from Quebec.  We can use that vector to get a smaller data frame with just
+those rows.
+
+```{r}
+CO2_Miss <- CO2[CO2$Type == "Mississippi", ]
+```
+
+Alternatively, we can use the `filter` function in `dplyr`.
+
+```{r}
+CO2_Miss <- filter(CO2, Type == "Mississippi")
+```
+
+Are the results of these two methods different at all?  How?
+
+You can filter based on multiple criteria, say only chilled plants from Mississippi.
+In R base:
+
+```{r}
+CO2_Miss_chilled <- CO2[CO2$Type == "Mississippi" & CO2$Treatment == "chilled", ]
+```
+
+In `dplyr`:
+
+```{r}
+CO2_Miss_chilled <- filter(CO2, Type == "Mississippi", Treatment == "chilled")
+```
+
+**Question 1 to turn in:** Using your choice of R base or `dplyr`, write a line
+to filter the `CO2` data frame, returning rows from the chilled treatment where 
+CO2 concentration (`conc`) is above 400.
+
+```{r}
+CO2_chilled_400 <- CO2[CO2$Treatment == "chilled" & CO2$conc > 400, ]
+
+CO2_chilled_400 <- filter(CO2, Treatment == "chilled", conc > 400)
+
+CO2_chilled_400
+```
+
+## Sorting a data frame
+
+R has a `sort` function, if you want to sort a single vector:
+
+```{r}
+sort(CO2$uptake)
+```
+
+There is also the `order` function, if you want to sort a vector, data frame,
+or mulitiple vectors based on one or more vectors.
+
+```{r}
+CO2$uptake[order(CO2$conc)]
+
+CO2[order(CO2$uptake),]
+
+CO2[order(CO2$Treatment, CO2$conc),]
+```
+
+Here the Treatment column is not sorted alphabetically, but has nonchilled
+first and chilled second.  That is because this column is not being treated
+as a character vector, but rather is a *factor* that has ordered levels.
+
+```{r}
+CO2$Treatment
+```
+
+If we wanted to change the order of the levels:
+
+```{r}
+CO2$Treatment <- factor(CO2$Treatment, levels = c("chilled", "nonchilled"))
+```
+
+Now we can sort it differently, with chilled first.
+
+```{r}
+CO2[order(CO2$Treatment, CO2$conc),]
+```
+
+In `dplyr`, the `arrange` function is used for sorting.
+
+```{r}
+arrange(CO2, Treatment, conc)
+```
+
+## Selecting columns
+
+We've already seen the use of `$` to extract individual columns.  We can also
+get a smaller data frame with several columns from the original:
+
+```{r}
+CO2_conc_uptake <- CO2[, c("conc", "uptake")]
+```
+
+In `dplyr`, we can do this with `select`:
+
+```{r}
+CO2_conc_uptake <- select(CO2, conc, uptake)
+```
+
+## Combining several commands
+
+If we wanted to subset by both rows and columns using R base, we could do so
+in the same subscript.  Remember that row selections go before the comma, and
+column selections after the comma.
+
+```{r}
+CO2[CO2$Type == "Mississippi" & CO2$Treatment == "chilled", c("conc", "uptake")]
+```
+
+In `dplyr`, we could accomplish the same by nesting functions although the code
+is not very readable:
+
+```{r}
+select(filter(CO2, Type == "Mississippi", Treatment == "chilled"), conc, uptake)
+```
+
+Alternatively we can do something in `dplyr` called *piping*.  If you have taken
+a class or workshop on bash programming, you might be familiar with piping as a
+way to send the output of one program directly to another program as the input.
+We can do this in `dplyr` too using the `%>%` command, which sends the output of
+an expression or function to the first argument of the next function.  For example:
+
+```{r}
+CO2 %>%
+  filter(Type == "Mississippi", Treatment == "chilled") %>%
+  select(conc, uptake)
+```
+
+**Question 2 to turn in:** Filter the `CO2` data frame to only include plants from
+Mississippi, and sort the resulting data frame by `conc`.  If you are using R base,
+you can do this in two steps.  If using `dplyr`, use piping.
+
+```{r}
+CO2_Miss <- CO2[CO2$Type == "Mississippi",]
+CO2_Miss_sort <- CO2_Miss[order(CO2_Miss$conc),]
+
+CO2_Miss_sort <- CO2 %>%
+  filter(Type == "Mississippi") %>%
+  arrange(conc)
+
+CO2_Miss_sort
+```
+
+## Performing operations on subsets of data
+
+Say we wanted the mean uptake for chilled plants from Quebec.  We could subset and
+then take the mean.
+
+```{r}
+mean(CO2$uptake[CO2$Type == "Quebec" & CO2$Treatment == "chilled"])
+
+mean(filter(CO2, Type == "Quebec", Treatment == "chilled")$uptake)
+```
+
+But what if we want the mean for each combination of Type and Treatment?  It would
+be tedious to have to type out each one individually.  In the R base, there is a
+very handy function called `tapply` that can separate a vector into groups and then
+perform some function on each group.
+
+```{r}
+tapply(CO2$uptake, INDEX = list(CO2$Type, CO2$Treatment), FUN = mean)
+```
+
+In `dplyr`, we could use `group_by` and `summarize`.
+
+```{r}
+group_by(CO2, Type, Treatment) %>%
+  summarize(mean_uptake = mean(uptake))
+```
+
+In this example, `mean_uptake` is an arbitrary variable name; I could have called
+it anything I wanted.
+
+**Question 3 to turn in:** Get the minimum and maximum uptake for each combination
+of Type, Treatment, and conc.  You can do this with R base or `dplyr`, using either
+one or two commands.
+
+```{r}
+tapply(CO2$uptake, INDEX = list(CO2$Type, CO2$Treatment, CO2$conc), FUN = min)
+tapply(CO2$uptake, INDEX = list(CO2$Type, CO2$Treatment, CO2$conc), FUN = max)
+
+group_by(CO2, Type, Treatment, conc) %>%
+  summarize(min_uptake = min(uptake), max_uptake = max(uptake))
+```
+
+## Adding new columns
+
+Say we wanted the CO2 uptake in micromoles per meter squared per minute instead of per
+second.  We can add new columns using the `$` operator, the same way we access columns.
+
+```{r}
+CO2$uptake_minutes <- CO2$uptake * 60
+```
+
+(You might use `head(CO2)` to preview the results.)
+
+In `dplyr` we can accomplish this task with `mutate`.
+
+```{r}
+CO2 <- mutate(CO2, uptake_minutes = uptake * 60)
+```
+
+## If you have extra time
+
+Look through the `dplyr` vignette, explore other features, and experiment with other
+datasets.  You may notice that the vignette uses a "tibble" rather than a data frame;
+take a look at the `tibble` package to learn more.  See what happens when you try to
+use `$` to access a column that doesn't exist in a data frame vs. in a tibble.
+
+You may also wish to take a look at another Tidyverse package called `ggplot2`.
+We'll have a lab on that package later in the course.  For example, here is a useful
+plot of the `CO2` dataset:
+
+```{r eval = TRUE}
+library(ggplot2)
+
+ggplot(CO2, aes(x = conc, y = uptake, color = Treatment)) +
+  geom_line(aes(group = Plant)) +
+  geom_point() +
+  facet_wrap(~ Type)
+```

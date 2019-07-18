@@ -1,0 +1,12 @@
+%% This is a custom file format for storing germplasm accession data %%
+%% The first field contains the germplasm accession number
+%% The second field contains the genus
+%% The third field contains the species
+%% The fourth field contains the collection date
+%% The fifth field indicates how many propagules are available for distribution
+PI658569;Glycine;max;1970-04-05;430
+PI151783;Glycine;max;1989-08-30;210
+PI569331;Glycine;max;no data;0
+PI034005;Glycine;max;1965-04-27;25
+PI824872;Glycine;max;1999-05-06;1000
+PI871435;Glycine;max;2001-09-16;no data

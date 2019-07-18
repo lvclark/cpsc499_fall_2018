@@ -1,0 +1,266 @@
+---
+title: "Lab 2: Making your own functions"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r echo = FALSE, eval = FALSE}
+# code for generating FASTQ to align
+#mycon <- gzfile("D:/Raw_seq_data/DOE-Msa-57a_HKVJ7BBXX_s_1_fastq.txt.gz", "r")
+mycon <- file("D:/Msa_split_files/DOEMsa52_AACCTGCA.fq")
+mylines <- readLines(mycon, 4e4)
+close(mycon)
+cat(mylines, file = "Lab2_example_seq.fastq", sep = "\n")
+```
+
+## SAM format
+
+The Sequence Alignment/Map format is designed to contain information about
+alignment of DNA sequencing reads to a reference genome.  Because it is
+tab-delimited text, we can import it into R and other software without a lot
+of trouble.  After a series of header lines starting with `@`, the data are in
+a tabular format; see https://samtools.github.io/hts-specs/SAMv1.pdf.
+
+Download the file "Lab2_example_align.sam" from the "Week 2" folder on Compass.
+Import it as a data frame in R using `read.table` with the arguments
+`sep = "\t"`, `comment.char = "@"`, `fill = TRUE`, and 
+`stringsAsFactors = FALSE`.  Later in the course we'll talk more about data
+import and what all of these mean.
+
+```{r echo = TRUE}
+samtab <- read.table("Lab2_example_align.sam", sep = "\t", comment.char = "@",
+                      stringsAsFactors = FALSE, fill = TRUE)
+```
+
+How many columns does it have?  Does the content of each column match the
+description online?
+
+## The FLAG column
+
+The second column, known as the flag column, contains information about each
+alignment in the form of an integer.  It is not very human-readable, but is
+efficient in terms of space.  In this file, we only have three values.
+0 indicates the read aligned to the top strand, 16 indicates that it aligned to
+the bottom strand, and 4 indicates that it could not be aligned to the
+reference genome.
+
+```{r echo = TRUE}
+unique(samtab$V2)
+```
+
+**Question 1 to turn in:** Make a function that accepts a vector of flag 
+values, and returns a vector of the same length containing the strings "top",
+"bottom", and "unaligned" in order to make a more human-readable interpretation
+of the flags.  The function should produce an error if it finds any values
+other than 0, 4, or 16.
+
+```{r echo = FALSE}
+interpret_flag <- function(flagval){
+  if(!all(flagval %in% c(0, 4, 16))){
+    stop("Value found not equal to 0, 4, or 16.")
+  }
+  # set up the output vector, containing one empty string for each flagval
+  outstring <- rep("", length(flagval))
+  
+  # use Boolean indexing to fill in 
+  outstring[flagval == 0] <- "top"
+  outstring[flagval == 16] <- "bottom"
+  outstring[flagval == 4] <- "unaligned"
+  
+  return(outstring)
+}
+```
+
+```{r echo = TRUE, error = TRUE}
+# testing out the function
+interpret_flag(c(0, 0, 4, 16, 4))
+interpret_flag(c(0, 2))
+```
+
+Hint: Use `rep` or `character` to set up the vector, then fill it in.  The
+`any` or `all` function might be handy for the `if` clause that determines
+whether or not to throw an error.
+
+Ideally, the function will use indexing to avoid loops entirely (because loops
+are slow in R).  However, I will still give full credit for answer that uses
+a loop, as long as the output is what is expected.
+
+### Using your function
+
+Use your function to add a new column to `samtab` containing the strings
+"top", "bottom", and "unaligned".
+
+```{r echo = FALSE}
+samtab$Status <- interpret_flag(samtab$V2)
+```
+
+
+### If you have extra time
+
+It is possible for a value in the flag column to indicate multiple flags, for
+example 18 = 16 + 2 = "reverse complement" + "each segment properly aligned".
+The way to interpret this is to turn the number into bits, for example
+18 = 000000010010, so the bits at 2 and 16 are 1's, indicating their respective
+flags.  See `?bitwAnd`.
+
+```{r echo = TRUE}
+# take a vector of 5 values and check if they have the 16 flag
+bitwAnd(c(16, 18, 4, 0, 32), 16) == 16
+```
+
+This is a somewhat more robust way to check the flag values in a SAM file.
+
+## Searching for alignments in a certain range
+
+It is likely that you might want to search for reads that aligned to a certain
+genomic range, say near a gene or QTL that is of interest to you.  You could
+use the filtering tools that we learned in the last lab, but if you are 
+performing this task a lot, it is convenient to wrap it into a function.
+Having it as a function also gives us the chance to do error checking.
+
+**Question 2 to turn in:** Make a function that takes four required arguments:
+a table from a SAM file like our `samtab`, a character string indicating a 
+chromosome, a number indicating a start point in the genome, and a number
+indicating an end point in the genome.  The function will return a subset of
+the table containing reads overlapping with that region.  Also, include an 
+argument called `minQual` with a default value of 20, indicating the minimum
+quality score (column 5) that a read must have in order to be returned.
+Lastly, have the function sort the table by position.  Make the function give
+an error if the start point comes after the end point.
+
+```{r echo = FALSE}
+filter_by_loc <- function(samtable, chromosome, start, end, minQual = 20){
+  if(start > end){
+    stop("Starting position comes after ending position.")
+  }
+  
+  # filter by quality and chromosome
+  samtable <- samtable[samtable$V3 == chromosome & samtable$V5 >= minQual,]
+  # get the end point for the read
+  startpoint <- samtable$V4
+  endpoint <- startpoint + nchar(samtable$V10) - 1
+  # find reads overlapping this range
+  overlap <- (startpoint >= start & startpoint <= end) | 
+    (endpoint >= start & endpoint <= end)
+  
+  # filter and sort the table
+  samtable <- samtable[overlap,]
+  samtable <- samtable[order(samtable$V4),]
+  
+  return(samtable)
+}
+```
+
+Searching for reads between 110 and 111 Mb on Chr05:
+
+```{r echo = TRUE}
+filter_by_loc(samtab, "Chr05", 110e6, 111e6)
+```
+
+Adjusting the minumum quality score:
+
+```{r echo = TRUE}
+filter_by_loc(samtab, "Chr05", 110e6, 111e6, minQual = 40)
+```
+
+Making sure the error works:
+
+```{r error = TRUE}
+filter_by_loc(samtab, "Chr05", 112e6, 111e6)
+```
+
+Hint: You might use `nchar` on the DNA sequences (column 10) to get their
+length so that you know the end point for the read as well as the start
+point for the read.  Then you can return reads where either the start or
+end point overlaps the specified region.
+
+If you want to use `dplyr` tools within your function, I recommend the
+following syntax: `dplyr::filter` instead of `filter`, `dplyr::arrange`
+instead of `arrange`, etc.  This way, the function will work as long
+as the user has `dplyr` installed, whether or not they have loaded `dplyr`
+with `library`.
+
+## What's wrong with the script below?
+
+**Question 3 to turn in:** The script below works, but something about it is
+very bad programming practice.  In two or three sentences, explain what is
+wrong with it and why.  How would you change it?
+
+```{r echo = TRUE}
+samtab <- read.table("Lab2_example_align.sam", sep = "\t", comment.char = "@",
+                      stringsAsFactors = FALSE, fill = TRUE)
+
+# function to filter a table from a SAM file and only keep sequences meeting
+# a certain length requirement.
+filter_by_len <- function(tab){
+  newtab <- tab[nchar(tab$V10) >= minlen,]
+  return(newtab)
+}
+
+# only keep sequences at least 80 nt long
+minlen <- 80
+samtab80 <- filter_by_len(samtab)
+nrow(samtab80)
+
+# only keep sequences at least 70 nt long
+minlen <- 70
+samtab70 <- filter_by_len(samtab)
+nrow(samtab70)
+```
+
+```{r echo = FALSE}
+# The function uses a variable from the global environment.  When that variable
+# is changed, the function can be run with the same arguments and produce 
+# different results, making the function untrustworthy.  This is easily 
+# remedied by adding `minlen` as an argument to the function.
+```
+
+## If you have extra time
+
+You might not want to have to remember all of those arguments that we used
+for reading the SAM file to begin with.  Put the call to `read.table` inside
+the body of a new function that you'll call `readSAM`, so the only argument
+you have to pass to `readSAM` is the file name.  This is called a 
+"wrapper" function, because like a thin candy wrapper, it is just a thin
+layer of abstraction around another function.
+
+Within the body of your `readSAM` function, you might also call your
+`interpret_flag` function and use it to add a new column to the table
+before exporting.  You might also have `readSAM` rename the table columns
+to something more meaningful, and perform some checks to confirm that the
+file really is in SAM format (`is.character` and `is.integer` might be handy).
+
+```{r echo = FALSE}
+readSAM <- function(file){
+  # read file
+  samtab <- read.table(file, sep = "\t", comment.char = "@",
+                       stringsAsFactors = FALSE, fill = TRUE)
+  # check format
+  if(ncol(samtab) < 11 ||
+     !is.character(samtab$V1) ||
+     !is.integer(samtab$V2) ||
+     !is.character(samtab$V3) ||
+     !is.integer(samtab$V4) ||
+     !is.integer(samtab$V5) ||
+     !is.character(samtab$V10)){
+    stop("File does not appear to be in SAM format")
+  }
+  
+  # add text to identify strand
+  samtab$Strand <- interpret_flag(samtab$V2)
+  
+  # add column names
+  colnames(samtab)[1:11] <- c("Name", "Flag", "Chromosome", "Position",
+                              "Quality", "CIGAR", "Chromosome2", "Position2",
+                              "Length", "Sequence", "SeqQuality")
+  
+  return(samtab)
+}
+
+# try out the function
+mysam <- readSAM("Lab2_example_align.sam")
+```
+

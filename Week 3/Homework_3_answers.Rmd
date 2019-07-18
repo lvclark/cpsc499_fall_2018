@@ -1,0 +1,180 @@
+---
+title: "Homework 3"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Data for this homework
+
+This homework is a continuation of Lab 3, where we made a function to draw
+Manhattan plots.  Now we'll look at some of the actual genotype and phenotype
+data that was used for that same genome-wide association analysis.
+
+To save space and speed up data loading, the genotypes are saved in a .RData
+file called "Msi_genotypes.RData".  We can import it with `load`.
+
+```{r}
+load("Msi_genotypes.RData")
+```
+
+The data format is something called a matrix, which we haven't discussed in
+class yet, but it is two-dimensional like a data frame.  Matrices are a bit
+more efficient than data frames when all data are the same type, like genotypes
+at thousands of SNP markers.  To get the genotypes for all individuals at just
+one marker, index it like this:
+
+```{r, eval = FALSE}
+msi_gen[,"PstI-TP25701"]
+```
+
+Homozygotes for either allele are coded as -1 and 1, respectively.
+Heterozygotes are coded as 0.  Missing data were imputed based on relatedness,
+and generally are intermediate values representing uncertainty of genotypes.
+
+There is also a CSV with BLUPs (best linear unbiased predictors) of the yield 
+and height phenotypes, as well as assignment of each individual to a genetic
+group (DAPC_group).
+
+```{r}
+phen <- read.csv("Msi_groups_and_phenotypes.csv")
+head(phen)
+```
+
+For simplicity, the two files have accessions listed in the same order.
+
+## Inspecting significantly associated SNPs
+
+Once you have identified a significant SNP (you should have seen some that were
+high on the Manhattan plot in the lab; they are also at the top of each 
+GWAS spreadsheet), you might have some questions about why it was significant, 
+and how useful it could be in marker assisted selection.  Was the minor allele
+(the allele that was less common in the population) associated with an increase
+or decrease in the phenotype?  Was a different effect seen in heterozygotes
+versus homozygotes?  What genetic groups had the minor allele?  How many 
+individuals?
+
+We can answer all of these questions by drawing a scatter plot of phenotype
+versus genotype, particularly if we color by genetic group.  Here's an example
+using ggplot.
+
+```{r}
+library(ggplot2)
+```
+
+The code for the graph below will be posted in the answer key.
+
+```{r warning=FALSE}
+phen$PstI.TP1253947 <- msi_gen[,"PstI-TP1253947"]
+ggplot(phen, aes(x = PstI.TP1253947, y = Yield_BLUP, col = DAPC_group)) +
+  geom_point(alpha = 0.5) +
+  scale_color_brewer(type = "qual", palette = "Paired")
+```
+
+From this we can see that the minor allele tends to show up in the
+SE China/tropical and Sichuan groups, that it is associated with higher yield,
+and that the effect seems to be additive, with homozygotes having higher
+yields than heterozygotes.
+
+Maybe we want to inspect one group at a time.  dplyr could be useful for this.
+
+```{r, message = FALSE}
+library(dplyr)
+```
+
+```{r warning = FALSE}
+filter(phen, DAPC_group == "Sichuan") %>%
+  ggplot(aes(x = PstI.TP1253947, y = Yield_BLUP)) +
+  geom_point(alpha = 0.9) +
+  ggtitle("Sichuan")
+```
+
+Try recreating these two plots, using either ggplot or the base graphics system.
+If you are using ggplot, you might add genotypes at SNPs of interest to your
+phenotype data frame for ease of plotting.
+
+Once you have it figured out, explore some of the other SNPs.  Are alleles for
+high yield tending to come from the same genetic groups or different ones?
+What about height?
+
+After performing this task repeatedly, you may find yourself copying and pasting
+code, and just changing a few things each time.  Try making a function to help
+automate what you want to do.
+
+```{r}
+# an example function using the base graphics system.
+# Plot genotype on the x-axis, phenotype on the y-axis, and color by genetic
+# group.  Have an option to filter by genetic group
+# genotypes is a matrix of genotypes, with markers in columns
+# marker is the marker name
+# phenotypes is a vector of phenotype values
+# groups is a vector of group ids
+gen_vs_phen <- function(genotypes, phenotypes, groups, marker,
+                        group.subset = unique(groups)){
+  require(RColorBrewer)
+  # how many genetic groups are there
+  ngrp <- length(group.subset)
+  # get a color palette for genetic groups
+  mypal <- brewer.pal(ngrp, "Set3")
+  # name it for indexing (we haven't done this in class quite yet)
+  names(mypal) <- group.subset
+  # get subset of observations to plot
+  subset <- groups %in% group.subset
+  # draw plot
+  plot(genotypes[subset,marker], phenotypes[subset],
+       xlab = marker, ylab = "Phenotype", 
+       bg = mypal[as.character(groups[subset])], pch = 21,
+       xlim = c(-1,1))
+  # figure out which corner would be best for legend
+  meanphen <- mean(phenotypes[subset], na.rm = TRUE)
+  topleft <- sum(genotypes[subset,marker] < 0 & phenotypes[subset] > meanphen, na.rm = TRUE)
+  topright <- sum(genotypes[subset,marker] > 0 & phenotypes[subset] > meanphen, na.rm = TRUE)
+  bottomleft <- sum(genotypes[subset,marker] < 0 & phenotypes[subset] < meanphen, na.rm = TRUE)
+  bottomright <- sum(genotypes[subset,marker] > 0 & phenotypes[subset] < meanphen, na.rm = TRUE)
+  corners <- c(topleft, topright, bottomleft, bottomright)
+  if(min(corners) %in% c(topleft, bottomleft)){
+    legX <- -0.9
+    legY <- max(phenotypes[subset], na.rm = TRUE)
+  }
+  if(min(corners) %in% c(topright, bottomright)){
+    legX <- 0.1
+    legY <- max(phenotypes[subset], na.rm = TRUE)
+  }
+  # make legend
+  legend(legX, legY, legend = group.subset, pt.bg = mypal, pch = 21)
+}
+
+# draw plots
+gen_vs_phen(msi_gen, phen$Yield_BLUP, phen$DAPC_group, "NsiI-TP616411")
+gen_vs_phen(msi_gen, phen$Yield_BLUP, phen$DAPC_group, "PstI-TP1253947")
+gen_vs_phen(msi_gen, phen$Yield_BLUP, phen$DAPC_group, "PstI-TP36158")
+gen_vs_phen(msi_gen, phen$Yield_BLUP, phen$DAPC_group, "PstI-TP36158",
+            group.subset = "Sichuan")
+gen_vs_phen(msi_gen, phen$Height_BLUP, phen$DAPC_group, "NsiI-TP407592")
+
+# Many of the significant SNPs are variable within the SE China/tropical and
+# Sichuan groups.
+
+# version with ggplot
+gen_vs_phen2 <- function(genotypes, phenotypes, groups, marker,
+                        group.subset = unique(groups)){
+  require(ggplot2)
+  # subset of individuals to plot
+  subset <- groups %in% group.subset
+  # set up a data frame for ggplot
+  df <- data.frame(DAPC_group = groups[subset],
+                   Phenotype = phenotypes[subset],
+                   Genotype = genotypes[subset,marker])
+  
+  # draw plot
+  ggplot(df, aes(x = Genotype, y = Phenotype, col = DAPC_group)) +
+    geom_point(alpha = 0.6) +
+    scale_color_brewer(type = "qual", palette = "Set3")
+}
+
+# draw plots
+gen_vs_phen2(msi_gen, phen$Yield_BLUP, phen$DAPC_group, "PstI-TP36158")
+```
+

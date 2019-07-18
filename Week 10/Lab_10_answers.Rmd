@@ -1,0 +1,200 @@
+---
+title: "Lab 10 - Making an Rcpp function"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r echo = FALSE, eval = FALSE}
+## Generate some data for this lab
+# recombination frequencies
+recom <- rbeta(499, 2, 10)/2
+# matrix for SNP genotypes
+TestCrossMat <- matrix(0L, nrow = 300, ncol = 500,
+                       dimnames = list(paste("Progeny", 1:300),
+                                       paste("Marker", 1:500)))
+for(p in 1:nrow(TestCrossMat)){
+  for(m in 1:ncol(TestCrossMat)){
+    if(m == 1){
+      TestCrossMat[p,m] <- sample(c(0L, 1L), 1)
+    } else {
+      TestCrossMat[p,m] <- ifelse(runif(1) <= recom[m-1], 1L - TestCrossMat[p,m-1], TestCrossMat[p,m-1])
+    }
+  }
+}
+save(TestCrossMat,  file = "TestCrossMat.RData")
+```
+
+## Finding recombination break points
+
+Say we have a matrix of SNP data from a testcross mapping population, with all
+homozygotes coded as `0` and heterozygotes coded as `1`.  The markers are in
+map order.
+
+```{r echo = TRUE}
+load("TestCrossMat.RData")
+TestCrossMat[1:10,1:10]
+```
+
+We want to find recombination breakpoints, i.e. locations of markers
+where the genotype is different from the genotype at the adjacent marker. 
+Here's a loop to do this somewhat inefficiently, although some allocation
+is done.  The output vector containing the indices is
+preallocated to a longer length than needed, then shortened when the
+loop is done.
+
+```{r}
+# A function that looks for breakpoints in just one progeny.
+findBreakpointsOneProgeny <- function(genotypes){
+  nloc <- length(genotypes) # number of markers
+  # preallocate a vector to store the breakpoints.  bigger than needed.
+  outindices <- integer(nloc)
+  # variable to count up how many indices we have found
+  mycount <- 0L
+  
+  # loop through markers and look for breakpoints
+  for(m in 2:nloc){
+    if(genotypes[m] != genotypes[m - 1]){
+      mycount <- mycount + 1L
+      outindices[mycount] <- m
+    }
+  }
+  
+  # trim vector down to right size
+  if(mycount > 0){
+    outindices <- outindices[1:mycount]
+  } else {
+    outindices <- integer(0)
+  }
+  
+  return(outindices)
+}
+
+# apply the function across the matrix
+mybp <- apply(TestCrossMat, 1, findBreakpointsOneProgeny)
+mybp[1:5]
+```
+
+Did `findBreakpointsOneProgeny` get automatically compiled?
+
+## Translating the function to C++
+
+In RStudio, make a new C++ file using the "New File" dialogue.  As you edit the
+file, be sure to keep a header like this (with a comment to describe the function):
+
+```{Rcpp echo = TRUE, eval = FALSE}
+#include <Rcpp.h>
+using namespace Rcpp;
+
+// Insert function description here
+// [[Rcpp::export]]
+```
+
+Take the above function for finding breakpoints (`findBreakpointsOneProgeny`) 
+and translate it into C++.  A few things to remember:
+
+* Declare your variables and put a semicolon at the end of each command.
+* You can change the value of a variable as many times as you want, but only need to declare
+its class once (generally at the beginning of the function).
+* The first item in a vector is index `0`, the second item index `1`, and so on.
+* `i++;` is shorthand for `i = i + 1;`
+* To preallocate an integer vector of length 5, do `IntegerVector myvect(5);`,
+where `myvect` is the name of the vector.
+* You can find the length of a vector `myvect` with `myvect.size()`.
+* `Range(0, 3)` in Rcpp is the equivalent of `0:3` in R, and can be used for 
+indexing vectors.
+* You can reset a vector to have length zero like this: `myvect = IntegerVector(0);`
+* You don't need parentheses after your `return` statement.
+
+```{Rcpp echo = TRUE}
+#include <Rcpp.h>
+using namespace Rcpp;
+
+// Function to find recombination breakpoints in a vector of SNP genotypes.
+// Genotype values must be 0 or 1.
+
+// [[Rcpp::export]]
+IntegerVector findBreakpointsOneProgenyRcpp(IntegerVector genotypes){
+  int nloc = genotypes.size();    // Number of markers
+  IntegerVector outindices(nloc); // preallocate vector for output
+  int mycount = 0;                // count the number of indices found
+  
+  // loop through markers and look for breakpoints
+  for(int m = 1; m < nloc; m++){
+    if(genotypes[m] != genotypes[m - 1]){
+      outindices[mycount] = m + 1;
+      mycount++;
+    }
+  }
+  
+  // Trim down output vector
+  if(mycount > 0){
+    outindices = outindices[Range(0, mycount - 1)];
+  } else {
+    outindices = IntegerVector(0);
+  }
+  
+  return outindices;
+}
+```
+
+```{r echo = TRUE}
+# example use of compiled function
+mybp2 <- apply(TestCrossMat, 1, findBreakpointsOneProgenyRcpp)
+mybp2[1:5]
+identical(mybp, mybp2)
+```
+
+**Question 1 to turn in (2 points):** Turn in the C++ code for your translation of the 
+`findBreakpointsOneProgeny` function.
+
+## Comparing R vs. C++ for this function
+
+Use `microbenchmark` to run a test comparing the speed of the function written 
+in R to the version you translated into C++.  
+
+**Question 2 to turn in (1 point):** Which function is faster, or are they
+about the same?  Which would you rather include in an R package and why?
+
+```{r echo = TRUE, eval = TRUE}
+library(microbenchmark)
+microbenchmark(apply(TestCrossMat, 1, findBreakpointsOneProgeny),
+               apply(TestCrossMat, 1, findBreakpointsOneProgenyRcpp))
+
+# Although the R version got compiled, the C++ version is still ~50x faster.
+# In this case it is probably worth it to use the Rcpp version in an R 
+# package.  It will make things a little more complicated for someone looking
+# at the package source, but much faster for end users.
+```
+
+## Homework, or if you have extra time in lab
+
+Even with the Rcpp function, we're still `apply`ing it across the matrix,
+which could slow things down a little bit.  Try writing code in R that
+processes the whole matrix at once, reducing what happens inside loops 
+or `apply` calls.  Use `microbenchmark` or profiling to compare it to
+what we did above.
+
+```{r echo = TRUE}
+findBreakpointsAll <- function(genmat){
+  nloc <- ncol(genmat)
+  # get true/false matrix for genotypes being identical to adjacent gen.
+  idmat <- genmat[,1:(nloc-1)] != genmat[,2:nloc]
+  # apply `which` across rows to get indices for all
+  outind <- apply(idmat, 1, function(x) unname(which(x) + 1L))
+  return(outind)
+}
+```
+
+```{r echo = TRUE}
+mybp3 <- findBreakpointsAll(TestCrossMat)
+identical(mybp, mybp3)
+```
+```{r eval = TRUE, echo = TRUE}
+microbenchmark(findBreakpointsAll(TestCrossMat),
+               apply(TestCrossMat, 1, findBreakpointsOneProgeny),
+               apply(TestCrossMat, 1, findBreakpointsOneProgenyRcpp))
+```
+

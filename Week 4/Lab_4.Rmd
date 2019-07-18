@@ -1,0 +1,195 @@
+---
+title: "Lab 4"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Data for this lab
+
+Today we will use some rice genomics data downloaded from Phytozome.
+
+Ouyang S, Zhu W, Hamilton J, Lin H, Campbell M, Childs K, Thibaud-Nissen F, Malek RL, Lee Y, Zheng L, Orvis J, Haas B, Wortman J, Buell CR, The TIGR Rice Genome Annotation Resource: improvements and new features., *Nucleic acids research*. 2007 Jan ; 35 Database issue D883-7
+
+The file "Osativa_323_v7.0.protein.fa" contains the seqeunces of all proteins
+in the rice genome, one for each annotated transcript.  It is in FASTA format,
+where each sequence has a header line starting with ">", followed by one or
+more lines containing the sequence itself.
+
+The amino acid codes used in FASTA format, as well as some information about
+the amino acids, are given below.  See 
+https://proteinstructures.com/Structure/Structure/amino-acids.html for more
+information about how amino acids influence protein structure.
+
+| Amino acid    | Code | Type        |
+| ------------- | ---- | ----------- |
+| arginine      | R    | charged (+) |
+| lysine        | K    | charged (+) |
+| aspartic acid | D    | charged (-) |
+| glutamic acid | E    | charged (-) |
+| asparagine    | N    | polar       |
+| cysteine      | C    | polar       |
+| glutamine     | Q    | polar       |
+| histidine     | H    | polar       |
+| serine        | S    | polar       |
+| threonine     | T    | polar       |
+| tryptophan    | W    | polar       |
+| tyrosine      | Y    | polar       |
+| alanine       | A    | hydrophobic |
+| glycine       | G    | hydrophobic |
+| isoleucine    | I    | hydrophobic |
+| leucine       | L    | hydrophobic |
+| methionine    | M    | hydrophobic |
+| phenylalanine | F    | hydrophobic |
+| proline       | P    | hydrophobic |
+| valine        | V    | hydrophobic |
+| stop codon    | *    |             |
+
+We can use `readLines` to read the whole file into a single character vector.
+
+```{r}
+# read all lines of the FASTA file into a character vector
+falines <- readLines("Osativa_323_v7.0.protein.fa")
+```
+
+Use `grep` to find the header line for each protein; these are lines that 
+begin with ">".
+
+```{r}
+header_lines <- grep("^>", falines)
+# test to see that it worked
+falines[header_lines][1:10]
+falines[-header_lines][1:30]
+# make a character vector containing just the headers
+headers <- falines[header_lines]
+```
+
+Make a loop that concatenates each protein sequence into a single string.
+
+```{r}
+# number of sequences
+nseq <- length(headers)
+# vector to contain protein sequences
+protein_seq <- character(nseq)
+# loop through and concatenate each sequence
+for(i in 1:nseq){
+  firstlinenum <- header_lines[i] + 1
+  if(i == nseq){
+    lastlinenum <- length(falines)
+  } else {
+    lastlinenum <- header_lines[i + 1] - 1
+  }
+  these_seq_lines <- falines[firstlinenum:lastlinenum]
+  protein_seq[i] <- paste(these_seq_lines, collapse = "")
+}
+# view the results
+protein_seq[1:5]
+# does each one start with 'M' and end with '*'?
+all(grepl("^M.*\\*$", protein_seq))
+# clean up environment
+rm(falines, firstlinenum, header_lines, i, lastlinenum, these_seq_lines)
+```
+
+Now you have the vector `headers` with information about each sequence, the 
+vector `protein_seq` with the corresponding sequences, and the variable `nseq`
+telling you how many sequences you have.
+
+Another file, "Osativa_323_v7.0.defline.txt" contains descriptive information 
+about each transcript/protein.  It is tab-delimited text, so we can import it
+with `read.table`.
+
+```{r}
+deflines <- read.table("Osativa_323_v7.0.defline.txt", sep = "\t",
+                       stringsAsFactors = FALSE, header = FALSE)
+head(deflines)
+```
+
+## Extracting transcript IDs from FASTA headers
+
+Column 1 of `deflines` contains the transcript IDs.  You'll notice that the
+headers from the FASTA file contain these same transcript IDs, but several
+times over and buried in with a lot of other text.
+
+**Question 1 to turn in:** Make a vector the same
+length as `headers` that just contains the transcript ID, so that we'll be
+able to look up in `deflines` a protein we find interesting from 
+`protein_seq`.  There are several ways to accomplish this; `sub`, `strsplit`,
+and/or `substring` could all be helpful.  Turn in the code that you write.
+
+```{r echo = FALSE}
+transcriptID <- sub(" .*$", "", headers)
+transcriptID <- sub("^>", "", transcriptID)
+```
+
+```{r}
+transcriptID[1:120]
+```
+
+## Searching for protein motifs
+
+Zinc finger proteins are a type of DNA-binding protein, reviewed at 
+https://doi.org/10.1146/annurev.biochem.70.1.313.  The pattern found in a
+zinc finger motif is: X2-C-X2,4-C-X12-H-X3,4,5-H, which translates to:
+
+* two of any amino acid
+* a cysteine
+* either two or four of any amino acid
+* a cysteine
+* twelve of any amino acid
+* a histidine
+* three, four, or five of any amino acid
+* a histidine
+
+**Question 2 to turn in:** Construct a regular expression to search for zinc
+finger motifs in protein sequence.  Use it with `grep` to find indices of 
+putative zinc finger proteins in your `protein_seq` vector.
+
+```{r echo = FALSE}
+zn_fing <- ".{2}C(.{2}|.{4})C.{12}H.{3,5}H"
+zn_fing_index <- grep(zn_fing, protein_seq)
+```
+
+```{r}
+zn_fing_index
+```
+
+### If you have extra time
+
+From Pabo et al. (2001): "The 12-residue region between the second cysteine and 
+first histidine usually has a pattern of the form -X3-(F/Y)-X5-Ψ-X2- (where Ψ 
+is a hydrophobic residue)."  Modify the regular expression to find this most
+common pattern.
+
+```{r echo = FALSE}
+zn_fing_common <- ".{2}C(.{2}|.{4})C.{3}[FY].{5}[AGILMFPV].{2}H.{3,5}H"
+zn_fing_index2 <- grep(zn_fing_common, protein_seq)
+```
+
+## Getting the deflines for your putative zinc finger proteins
+
+Now we want to see how many of these are actually labeled as zinc finger proteins
+on Phytozome.
+
+**Question 3 to turn in:** Index your `transcriptID` vector by `zn_fing_index`
+to get the transcript IDs of the proteins that you found.  Then use `match` to
+find the corresponding rows in `deflines`.
+
+```{r echo = FALSE}
+zn_rows <- match(transcriptID[zn_fing_index], deflines[[1]])
+```
+
+```{r}
+deflines[na.omit(zn_rows),]
+```
+
+### If you have extra time
+
+Use `grepl` and `mean` to find what proportion of your proteins are labeled
+with the words "zinc finger" in the defline.
+
+```{r echo = FALSE, eval = FALSE}
+mean(grepl("zinc finger", deflines[na.omit(zn_rows),3]))
+```
+

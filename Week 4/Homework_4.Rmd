@@ -1,0 +1,163 @@
+---
+title: "Homework 4"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+## The genetic code
+
+The following table shows how RNA codons are translated to amino acids:
+https://en.wikipedia.org/wiki/Genetic_code#Standard_codon_tables
+
+Most amino acids correspond to multiple codons.  Write regular expressions
+to search for codons for:
+
+* Serine
+* Lysine
+* Leucine
+* Stop
+
+```{r eval = FALSE}
+"UC."          # serine
+"AA[AG]"       # lysine
+"(CU.|UU[AG])" # leucine
+"U(AA|AG|GA)"  # stop
+```
+
+## Finding coding regions
+
+The file "amaranth_phyA.fasta" contains DNA sequence corresponding to the mRNA
+transcript of one of the phytochrome A genes in *Amaranthus hypochondriachus*.
+
+Import this file with `readLines`, then use `paste` to concatenate the lines
+(after the header line) into one long sequence.
+
+```{r}
+ah_phyA_lines <- readLines("amaranth_phyA.fasta")
+ah_phyA <- paste(ah_phyA_lines[-1], collapse = "")
+```
+
+Use `gregexpr` to find the locations of all possible start codons (ATG) and
+all possible stop codons (TAA, TAG, TGA) in the transcript sequence.  What is
+the longest possible coding region?  Keep in mind that the length of the coding
+region must be some multiple of three.
+
+```{r}
+# get vectors of positions where start and stop codons were found
+startlocs <- gregexpr("ATG", ah_phyA)[[1]]
+endlocs <- gregexpr("T(AA|AG|GA)", ah_phyA)[[1]]
+
+# find the longest possible coding region
+bestStart <- 0 # keep track of best start position
+bestEnd <- 0 # keep track of best end position
+bestLen <- 0 # keep track of best length
+
+# end of putative coding sequence (rather than beginning of stop codon)
+true_ends <- endlocs + 2
+
+# search
+for(st in startlocs){
+  poss_ends <- true_ends[true_ends > st & (true_ends - st + 1) %% 3 == 0]
+  if(length(poss_ends) == 0) next
+  end <- min(poss_ends) # the stop codon for this start codon
+  len <- end - st + 1
+  if(len > bestLen){
+    bestStart <- st
+    bestEnd <- end
+    bestLen <- len
+  }
+}
+
+# we can start at position 158 and end at position 3448 to get the longest coding region
+ah_phyA_coding <- substring(ah_phyA, bestStart, bestEnd)
+```
+
+Change the DNA sequence to an RNA sequence, with U instead of T.
+
+```{r}
+ah_phyA_coding_RNA <- gsub("T", "U", ah_phyA_coding)
+```
+
+If you want a real challenge, create a function to translate this DNA sequence
+into a protein sequence.  Don't worry about this too much though, since we'll 
+use a premade function for this task later with the `Biostrings` package.
+What sorts of error checking would you do in a function like this?
+
+```{r}
+translate_to_protein <- function(seq){
+  seqlen <- nchar(seq) # length of sequence
+  if(seqlen %% 3 != 0) stop("Sequence length not divisible by three")
+  letters <- unique(strsplit(seq, character(0))[[1]])
+  if(!all(letters %in% c("A", "C", "G", "T", "U"))){
+    stop("Non-DNA/RNA letters found.")
+  }
+  # convert to RNA
+  seq <- gsub("T", "U", seq)
+  
+  # translation vector
+  trans <- c(UUU = 'F', UUC = 'F', UUA = 'L', UUG = 'L', 
+    UCU = 'S', UCC = 'S', UCA = 'S', UCG = 'S',
+    UAU = 'Y', UAC = 'Y', UAA = '*', UAG = '*',
+    UGU = 'C', UGC = 'C', UGA = '*', UGG = 'W',
+    CUU = 'L', CUC = 'L', CUA = 'L', CUG = 'L',
+    CCU = 'P', CCC = 'P', CCA = 'P', CCG = 'P',
+    CAU = 'H', CAC = 'H', CAA = 'Q', CAG = 'Q',
+    CGU = 'R', CGC = 'R', CGA = 'R', CGG = 'R',
+    AUU = 'I', AUC = 'I', AUA = 'I', AUG = 'M',
+    ACU = 'T', ACC = 'T', ACA = 'T', ACG = 'T',
+    AAU = 'N', AAC = 'N', AAA = 'K', AAG = 'K',
+    AGU = 'S', AGC = 'S', AGA = 'R', AGG = 'R',
+    GUU = 'V', GUC = 'V', GUA = 'V', GUG = 'V',
+    GCU = 'A', GCC = 'A', GCA = 'A', GCG = 'A',
+    GAU = 'D', GAC = 'D', GAA = 'E', GAG = 'E',
+    GGU = 'G', GGC = 'G', GGA = 'G', GGG = 'G')
+  
+  # get codons
+  codons <- character(seqlen/3) # set up vector
+  for(i in 1:(seqlen/3)){
+    codons[i] <- substring(seq, i * 3 - 2, i * 3)
+  }
+  
+  # get amino acids
+  aa <- trans[codons]
+  # put together into one sequence
+  outseq <- paste(aa, collapse = "")
+  
+  return(outseq)
+}
+```
+
+```{r echo = TRUE}
+translate_to_protein(ah_phyA_coding)
+```
+
+## Formatting latitude and longitude for NCBI
+
+When submitting accession information to NCBI's BioSample portal
+(a prerequisite for depositing sequence data), if the accession was a wild
+collection, you can provide the latitude and longitude where it was collected.
+This is in the format "38.98 N 77.11 W", a single string.  The 
+"Miscanthus_sinensis_yield.csv" spreadsheet from week 1 has latitude and
+longitude for most accessions.  Generate a vector of strings formatted for
+NCBI containing latitude and longitude data.  For latitude, negative values 
+indicate S and positive values indicate N, and for longitude, negative 
+values indicate W and positive values indicate E.  Use `formatC` to ensure
+that each number is printed with two digits after the decimal point.
+
+```{r}
+mydata <- read.csv("Miscanthus_sinensis_yield.csv")
+NS <- ifelse(mydata$Latitude < 0, "S", "N")
+EW <- ifelse(mydata$Longitude < 0, "W", "E")
+latstring <- formatC(abs(mydata$Latitude), digits = 2, format = "f")
+longstring <- formatC(abs(mydata$Longitude), digits = 2, format = "f")
+ncbi_string <- paste(latstring, NS, longstring, EW)
+```
+
+```{r echo = TRUE}
+ncbi_string[255:270]
+```
+
+

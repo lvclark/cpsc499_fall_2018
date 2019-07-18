@@ -1,0 +1,11 @@
+export(GPS, GPS_elev,
+       GetDatum, GetLatitude, hemisphere,
+       SetLatitude)
+
+S3method(GetDatum, GPS)
+S3method(GetLatitude, GPS)
+S3method(hemisphere, GPS)
+S3method(plot, GPS)
+S3method(print, GPS)
+S3method(SetLatitude, GPS)
+S3method(summary, GPS)

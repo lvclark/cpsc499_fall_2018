@@ -1,0 +1,150 @@
+---
+title: "Homework 5"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+## FASTQ format
+
+The FASTQ format is used for storing next-generation DNA sequencing data.
+Each read includes four lines:
+
+* A comment line starting with `@`, that (on Illumina) contains information about the 
+instrument, flowcell, and where the PCR colony was physically located,
+* A line with the DNA sequence
+* A comment line starting with `+` that is generally blank
+* A line the same length as the sequence, containing a quality score for each base,
+encoded as a text character.
+
+We can use Illumina_seq_example.fastq from Lecture 5 for designing and testing out 
+a function for processing this type of data.  If you have larger FASTQ files, you
+might try it out on them later.
+
+## Exploring the format
+
+Use `readLines` to read in part of the file (probably some multiple of four lines).
+
+```{r}
+myfastq <- "Illumina_seq_example.fastq"
+testlines <- readLines(myfastq, 160)
+testlines[1:8]
+```
+
+
+What do the quality score lines look like?
+
+To extract meaningful quality scores from the fourth line of each read in the file:
+
+* Convert the character string into a set of bytes using `charToRaw`.
+* Convert the bytes into integers using `as.integer`.
+* Subtract 33 so that they range from 0 to 93 instead of 33 to 126.
+
+Make a function to convert a line like this into quality scores, and try it out.
+
+```{r}
+# get Phred quality scores from FASTQ
+interpret_quality <- function(string){
+  return(as.integer(charToRaw(string)) - 33L)
+}
+```
+
+```{r echo = TRUE}
+interpret_quality("!")
+interpret_quality("J")
+interpret_quality("~")
+interpret_quality(testlines[4])
+```
+
+These are Phred quality scores.  To get the probability of an incorrect base call, divide 
+the quality score by ten, multiply by -1, and raise 10 to that power.  See
+https://en.wikipedia.org/wiki/Phred_quality_score and https://en.wikipedia.org/wiki/FASTQ_format.
+
+## Trimming a read
+
+Since these come from RAD-seq using the enzyme *Pst*I, each read should start with a sequence
+barcode between six and 10 nucleotides, followed by the partial cut site `TGCAG`.  Write a 
+function that finds the barcode and cut site and determines how much to trim off.  It should
+give a number that you can use with `substring` to trim both the sequence and the quality
+scores.  If it doesn't find a barcode and cut site, have it return a negative number or `NA`
+to indicate that no match was found.  `regexpr` will probably be helpful, in particular if you
+use `attr` to extract the match length from the result.
+
+```{r}
+# return the starting position of the portion of the read that should be retained
+trim_PstI <- function(sequence){
+  mymatch <- regexpr("^[ACGT]{6,10}TGCAG", sequence)
+  len <- attr(mymatch, "match.length") 
+  len[len == -1] <- NA
+  return(len + 1)
+}
+```
+
+```{r echo = TRUE}
+trim_PstI("AAAAAAAAAAAAAAAA")
+trim_PstI("GGGGGGTGCAGAAAA")
+testlines_few <- testlines[seq(2, 34, by = 4)]
+startpos <- trim_PstI(testlines_few)
+substring(testlines_few, 1, startpos - 1)
+substring(testlines_few, startpos, nchar(testlines_few))
+```
+
+## Putting it all together into a function
+
+Make a function that does the following:
+
+* Reads a FASTQ file and outputs to a different FASTQ file
+* Filters out any reads with quality scores below 30 (or another user-defined
+threshold)
+* Filters out any reads that don't start with a barcode and cut site
+* Trims off the barcode and cut site from both the sequence and quality score
+for each read.
+
+Hint: Look up the `rep` and `seq` functions if you aren't already familiar 
+with them.  They can be useful for indexing and expanding vectors.
+
+```{r}
+filter_FASTQ <- function(infile, outfile, qual_threshold = 30,
+                         trim_fn = trim_PstI, nreads = 100){
+  # nreads is the number of reads to import at once
+  mycon <- file(infile, open = "r")
+  outcon <- file(outfile, open = "w")
+  while(length(mylines <- readLines(mycon, 4 * nreads))){
+    this_nreads <- length(mylines)/4
+    # get quality scores
+    qual_filt <- logical(this_nreads) # does it pass quality filter
+    for(i in 1:this_nreads){
+      thisqual <- interpret_quality(mylines[4 * i])
+      qual_filt[i] <- all(thisqual >= qual_threshold)
+    }
+    
+    # remove lines for reads not passing quality threshold
+    mylines <- mylines[rep(qual_filt, each = 4)]
+    if(length(mylines) == 0) next
+    
+    # find cut sites
+    startpos <- trim_fn(mylines[seq(2, length(mylines) - 2, by = 4)])
+    # remove lines without cut site
+    mylines <- mylines[rep(!is.na(startpos), each = 4)]
+    if(length(mylines) == 0) next
+    
+    # trim reads
+    lines_to_trim <- seq(2, length(mylines), by = 2)
+    mylines[lines_to_trim] <- substring(mylines[lines_to_trim], 
+                                        rep(startpos[!is.na(startpos)], each = 2),
+                                        nchar(mylines[lines_to_trim]))
+    
+    # output
+    writeLines(mylines, outcon)
+  }
+  close(mycon)
+  close(outcon)
+}
+```
+
+```{r echo = TRUE}
+filter_FASTQ("Illumina_seq_example.fastq", "Illumina_seq_example_filtered.fastq")
+```
+

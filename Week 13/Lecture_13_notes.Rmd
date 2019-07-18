@@ -1,0 +1,270 @@
+---
+title: "Lecture 13 Notes -- Differential gene expression analysis"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+In lecture we'll follow a traditional workflow, where we align RNA-seq reads
+to a reference genome, allowing for gaps from RNA splicing, then convert the
+BAM files to a count matrix for differential expression analysis.  In lab
+we'll use a newer approach for differential expression analysis.
+
+## Building the Bowtie2 index
+
+The index allows the aligner to very quickly find places that a read might
+match the reference genome.  We only have to build the index once.  This is
+done at the Linux terminal or in a bash script.
+
+```
+bowtie2-build Osativa_323_v7.0.hardmasked.fa Osativa_323_v7.0.hardmasked
+```
+
+## Aligning with TopHat
+
+I wrote a bash script to do all of the alignments on Biocluster.  The 
+reference genome FASTA, Bowtie2 index, and all FASTQ files were in the same
+folder as this script.
+
+```{bash eval = FALSE}
+#!/bin/bash
+
+module load TopHat
+
+for i in 49 50 51 52 53 54 55 56 57
+do
+tophat -o ./DRR0003${i}_tophat Osativa_323_v7.0.hardmasked DRR0003${i}.fastq
+done
+```
+
+This created a folder for each FASTQ file containing alignment information and
+possible intron-exon junctions.  The file `accepted_hits.bam` in each folder 
+contained the actual alignment data.  I downloaded just these BAM files and 
+renamed them according to the run name.
+
+## Previewing BAM files
+
+Now on our Ubuntu virtual machines, we can use SAMtools to take a look at the
+files.  We'll use `samtools view` to convert binary format back to text format,
+then pipe the results to `head` to just see the beginning.
+
+```
+samtools view /media/sf_ricedata/DRR000351.bam | head
+```
+
+## Loading the BAM files into Bioconductor
+
+Here are the packages we'll need today:
+
+```{r message = FALSE, warning = FALSE}
+# From Bioconductor
+library(GenomicFeatures)
+library(Rsamtools)
+library(GenomicAlignments)
+library(DESeq2)
+library(BiocParallel)
+library(apeglm)
+
+# From CRAN
+library(ggplot2)
+library(ggbeeswarm)
+library(pheatmap)
+
+# change parallel processing parameters to keep summarizeOverlaps from freezing
+register(SnowParam(workers = 1))
+```
+
+We'll load in the gene annotation data for rice into a `TxDb` object.  Then
+we'll point R to our BAM files and count the reads per gene.
+
+```{r cache = TRUE}
+# Get annotation data
+riceTxDb <- makeTxDbFromGFF("Osativa_323_v7.0.gene.gff3.gz",
+                            "gff3", dataSource = "Phytozome 12", organism = "Oryza sativa")
+exonsByGene <- exonsBy(riceTxDb, "gene")
+
+# Get BAM files
+riceBamPaths <- paste("TophatSAM/DRR0003", 49:57, ".bam", sep = "")
+riceBam <- BamFileList(riceBamPaths)
+```
+
+```{r eval = FALSE}
+# Count reads per gene -- takes a few minutes
+riceCounts <- summarizeOverlaps(exonsByGene, riceBam, singleEnd = TRUE, 
+                                ignore.strand = TRUE)
+save(riceCounts, file = "riceCounts.RData")
+```
+
+Since `summarizeOverlaps` takes a while to process, I saved the output.
+
+```{r}
+load("riceCounts.RData")
+```
+
+Our `riceCounts` object is of the class `RangedSummarizedExperiment`.  The
+`SummarizedExperiment` class is designed to hold matrices of numeric data,
+with assays in rows and samples in columns.  The `RangedSummarizedExperiment`
+extends that a little further by associating a genomic range with each assay.
+In this case each assay is a gene, and the numeric data is the number of 
+aligned reads overlapping exons of that gene.
+
+```{r}
+riceCounts
+assay(riceCounts)[1:5,]
+rowRanges(riceCounts)
+```
+
+
+We need to set up a table of sample information.
+
+```{r}
+rice_sam <- data.frame(row.names = paste("DRR0003", 49:57, sep = ""),
+                       tissue = c("root", "shoot")[c(2,1,2,1,2,1,2,1,1)],
+                       treatment = c("control", "salinity_stress")[c(1,1,2,2,1,1,2,2,2)],
+                       run = paste("DRR0003", 49:57, sep = ""))
+rice_sam
+```
+
+In the Bioconductor documentation you'll see a note about using `relevel`
+on the factor representing your treatment, to make sure the first level
+is the control group and the second level is the treatment group.  In this
+case, we don't have to do that since "control" comes before "salinity_stress"
+in the alphabet.
+
+We'll add that sample data to our object, then build the `DESeqDataSet` object.
+Note that the `DESeqDataSet` object contains a formula, like one that you would
+use for linear regression, indicating how the experiment was set up.  The variable
+of interest should always be the last one in the formula.
+
+```{r}
+# add sample data to the counts object
+colData(riceCounts) <- DataFrame(rice_sam)
+
+# make DESeq2 dataset
+riceDESeq <- DESeqDataSet(riceCounts, design = ~ tissue + treatment)
+
+# filter out low read depth genes
+riceDESeq <- riceDESeq[rowSums(counts(riceDESeq)) > 1, ]
+```
+
+## Confirming similarity between samples
+
+Before we analyze the data, we might want to get a quick visualization.
+The `rlog` function normalizes the samples by total depth and does a
+log transformation.
+
+```{r cache = TRUE}
+# normalize for visualization
+riceDESeqRlog <- rlog(riceDESeq, blind = FALSE)
+
+# get a heat map of samples
+riceDist <- as.matrix(dist(t(assay(riceDESeqRlog))))
+riceDist
+newNames <- paste(349:357, rice_sam$tissue, rice_sam$treatment)
+rownames(riceDist) <- newNames
+colnames(riceDist) <- newNames
+heatmap(riceDist)
+```
+
+We can see that the samples are grouped fairly tightly, first by tissue, then
+by treatment.  If this wasn't the case, we might want to confirm that we hadn't
+mixed up the BAM files.
+
+## Running the analysis
+
+Now we can find genes that are differentially expressed a statistically significant
+amount.
+
+```{r message = FALSE}
+# run the model
+riceDESeq <- DESeq(riceDESeq)
+
+# look at results with LFC threshold of one 
+riceResults <- results(riceDESeq, lfcThreshold = 1)
+summary(riceResults)
+
+# find interesting genes
+interestingGenes <- row.names(riceResults)[which((riceResults$log2FoldChange > 1 |
+                                                   riceResults$log2FoldChange < -1) &
+                                                   riceResults$padj < 0.05)]
+# sort them so most significant are first
+interestingGenes <- interestingGenes[order(riceResults[interestingGenes, "padj"])]
+
+str(interestingGenes)
+```
+
+## Visualizing how the significant hits were identified
+
+Well make an MA-plot to look at the log-fold change versus the read depth, with
+significant hits highlighted using color.  First we have to apply shrinkage to
+the dataset, since very low depth genes will have high sampling error, and could
+appear to have a high log-fold change without being significant.
+
+```{r cache = TRUE, message = FALSE}
+shrunk <- lfcShrink(riceDESeq,
+                    coef="treatment_salinity_stress_vs_control", type="apeglm")
+```
+
+Now we make the plot.
+
+```{r}
+plotMA(shrunk, ylim = c(-4, 5))
+```
+
+One thing to notice here is that we have some very highly upregulated genes
+under salt stress.  We have downregulated genes too, but not quite as much.
+(This is why it is important to put the control as the first level in the
+treatment factor, so we know which in direction the change is happening.)
+
+## Visualizing expression changes in individual genes
+
+For the top hits, how much did expression change?  In which direction?  And was
+it consistent across tissues?  The `plotCounts` function can tell us, and 
+moreover it can (optionally) be integrated with `ggplot2`.
+
+```{r}
+# plot the most significant gene
+plot1 <- plotCounts(riceDESeq, interestingGenes[1], intgroup = c("treatment", "tissue"),
+                    returnData = TRUE)
+
+ggplot(plot1, aes(x = treatment, y = count, col = tissue)) +
+  geom_beeswarm(cex = 2) + 
+  ggtitle(interestingGenes[1])
+```
+
+## Gene annotations for the top hits
+
+What do these genes actually do?  We can look them up in our defline table.
+
+```{r}
+# get gene annotations
+riceDefline <- read.delim("Osativa_323_v7.0.defline.txt",
+                          header = FALSE, row.names = 1,
+                          stringsAsFactors = FALSE)
+riceDefline[interestingGenes[1:20],2]
+```
+
+The top hit is a transcription factor that responds to ethylene, and 
+ethylene is known to be involved in responses to salt stress
+(see https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4661241/).  So that's a
+promising sign for the results being meaningful!  Several of the other
+top hits are involved in gene expression regulation and cellular signalling.
+
+## Visualizing and grouping all the top hits
+
+Now that we have it narrowed down to a smaller group of genes that we are
+interested in, we can do a heat map to look at expression patterns of those
+genes.
+
+```{r}
+to_plot <- assay(riceDESeqRlog[interestingGenes[1:20], ])
+
+to_plot <- to_plot - rowMeans(to_plot) # center each gene
+
+pheatmap(to_plot, annotation_col = rice_sam[,c("tissue", "treatment")])
+```
+
+The two main groups of genes seem to be those just upregulated in the roots,
+and those upregulated in both tissues.

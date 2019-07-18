@@ -1,0 +1,428 @@
+---
+title: "Lab 9 - building an R package"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+In this lab we'll learn how to create an R package that can be installed and 
+used like any other R package.
+
+Feel free to refer to https://github.com/lvclark/SNPfreq, which has a working
+version of the package in this example.
+
+## Setting up a GitHub repository for your R package
+
+You can, of course, just keep a copy of your R package on your local computer
+while you work on it.  However there are a few advantages to putting it on
+GitHub.
+
+* You have a backup of all your work, and it's very simple to keep the 
+backup up-to-date
+* You can edit your package from any computer with RStudio and Git installed
+(home, computer lab, office, etc.)
+* Allows multiple people to work on one R package and see each other's changes
+* You can share your package with anyone just by sending them a link
+* Other people can discover your package, try it out, and give you feedback
+* You can get a DOI so you can cite your package in a manuscript
+
+Log in to GitHub.com and create a new repository, initialized with a README file.
+In these examples I'll call the package `SNPfreq` and use some 
+previous code that I wrote in class for working with SNP allele frequencies.
+However, feel free to use your own code or other code from class, and name your
+repository something that makes sense.
+
+Now in RStudio, go to File -> New Project -> Version Control -> Git.  Enter the
+URL for the repository that you just created on GitHub, and the folder on your
+computer where you want the package to do.
+
+## Setting up the package structure
+
+Within the folder for your package, you need to make a folder called "R" and a
+folder called "man".  There are others that you may add later, but these two are
+mandatory.  "R" will contain all of the R code defining the functions (and possibly
+classes and methods) for your package.  These will be normal, text .R files like we
+have alredy been creating in class.  "man" will contain .Rd files documenting your
+functions.
+
+There are a couple ways to create these folders.  Directly in RStudio, you can go to
+the Files pane and click "New Folder".  You could also navigate to your package
+folder in Windows Explorer (on Windows) or Finder (on a Mac) and make the folders
+there.
+
+You will also need to create two mandatory files.  These will be called "DESCRIPTION"
+and "NAMESPACE" and won't have any file extension at the end.  In RStudio go to
+File -> New File -> Text File to create two new files, then save them into these 
+two names.  You don't have to put anything into them yet.
+
+Git and RStudio have added some extra files and directories to the folder, which
+you will not actually want when you go to build and install the package.  To make
+R package tools ignore those files, create a new text file called ".Rbuildignore".
+Each line of this file is a regular expression indicating a file name to ignore.
+Put the following lines into the file:
+
+```
+^\.git$
+^\.Rproj\.user$
+^\.gitattributes$
+^\.gitignore$
+^README\.md$
+^.*\.Rproj$
+^\.Rhistory$
+^\.RData$
+^LICENSE$
+```
+
+Save the file.  Go into the Git menu to review everything you have added, and make
+your first commit.  Go into the Git menu again to push the commit, and check your
+repository page on github.com to see that the new folders and files have shown up.
+
+Here's a snapshot of what your package folder should look like (approximately)
+at this point:
+
+![R package structure](packageStructure.png)
+
+## Adding your R code
+
+Open up the file "GGSNP_abstraction_example.R", or another file of your
+choice where you have defined some R functions.  Delete everything that isn't a 
+function definition.  You can leave comments.  For example, you want to delete
+the calls to `setwd` and `load`, and the lines that were used for trying out the 
+functions.  Save the file into your "R" directory in the package, and give it a
+name that makes sense, for example "SNPfreq_functions.R".
+
+Run `source` on the file to load all of the functions into your global environment,
+and to check that there aren't any errors.
+
+Perhaps do another commit here, or wait until more changes have been made if you 
+prefer.
+
+## Documenting the functions
+
+Use `prompt` to make a skeleton .Rd file for one of your functions.  For example:
+
+```{r eval = FALSE}
+prompt(minorAlleleFrequency)
+```
+
+There should now be a file called "minorAlleleFrequency.Rd" (or a different name if
+you did this for a different function).  Either in the RStudio
+Files pane or in your operating system's file explorer, move this file into the "man"
+directory.  Open the file in RStudio.
+
+If you are using the SNP allele frequency example, this is a good case where you
+can document multiple functions in one .Rd file.  They all do related things, and
+they all have an argument called `SNPmat` that accepts a matrix of the same format.
+
+To make this .Rd file document all three functions, add 
+
+```
+\alias{filterSNPs}
+\alias{mafHist}
+```
+
+under the existing line `\alias{minorAlleleFrequency}`.
+
+You will also need to add usage lines for the other two functions.  These can go into
+the same `\usage` section as `minorAlleleFrequency`.
+
+```
+\usage{
+minorAlleleFrequency(SNPMat)
+filterSNPs(SNPmat, minMAF = 0.05)
+mafHist(SNPmat)
+}
+```
+
+In the `\arguments` section, you will see a spot where you can describe the `SNPmat`
+argument.  Add another item for the `minMAF` argument, and fill in a description there
+as well.
+
+Add a title into the `\title` section.  This should be in title case, i.e. most words
+are capitalized.  Add a sentence or two describing what the functions do.
+
+In the `\value` section, describe separately what each function returns.  For example,
+`minorAlleleFrequency` returns a vector of allele frequencies, `filterSNPs` returns
+a SNP matrix in the same format as `SNPmat` but with columns removed for SNPs with 
+very rare alleles, and `mafHis` draws a plot and doesn't return anything.
+
+If you have more to say about the functions, you can write it in the `\details` section,
+but otherwise that section can be deleted.  You can put your name in the `\author` section,
+or delete that section.  In this case we can delete the `\references` section since we don't
+have any articles or websites related to the functions. `\seealso` will be helpful if we
+put any other functions into the package, but since we haven't done that yet we can 
+comment that section out with the `%` character.  You can delete the `\keyword` sections
+and the `\note` section.
+
+In the `\examples` section, delete the function definition.  In this section, add some
+code demonstrating use of all three functions.  First, add a call to `matrix` to make a 
+very small matrix to be passed to the `SNPmat` argument.  The entire chunk of code in
+this section should run on its own without needing any other objects from the global
+environment.
+
+Save your .Rd file and hit the "Preview" button to see what it will look like in RStudio.
+If there are problems with the syntax (a missing curly brace, etc.) you may get an 
+error.  Fix the file up so that it compiles and looks how you want it to look, then save
+it and make a commit.
+
+## Package namespace
+
+Open up your NAMESPACE file again.  Add the line:
+
+```
+export(minorAlleleFrequency, filterSNPs, mafHis)
+```
+
+What is this telling R?  This `export` statement means that when the package is
+loaded, those three functions should become available to the user.  If you want
+to have some **internal functions**, i.e. functions that are called by other
+functions in your package but that aren't accessible to the user, you can omit
+them from the `export` statement.
+
+There are a few other things that you may need in the NAMESPACE file.  Later 
+when you run the package check you may get a message that you need to add
+an `importFrom` statement.  Just copy it straight out of the package check log
+and add it to your NAMESPACE file.  This happens if your functions use some
+functions outside of the R "base" package, for example any functions in the
+"stats" package (which we take for granted being available every time R starts
+up).
+
+If you define any new S3 methods, you will need a line like
+
+```
+S3method(fn, cls)
+```
+
+for each, where "fn" is the name of the function and "cls" is the name of the
+class.  If you use the S4 system, you will instead need `exportClasses` and
+`exportMethods` statements.
+
+## Package description
+
+Lastly you need a DESCRIPTIOn file.  If you go to
+http://mirror.las.iastate.edu/CRAN/doc/manuals/r-release/R-exts.html#The-DESCRIPTION-file
+you will see a pretty thorough explanation of what needs to be in there.  It will
+contain information about what the package is called, what it does, what version it
+is, who you are, and what other packages are required for using it.
+
+Here is an example of what your DESCRIPTION file might look like:
+
+```
+Package: SNPfreq
+Version: 0.0
+Date: 2017-11-14
+Title: SNP Allele Frequency Estimation and Utilities
+Authors@R: person("Lindsay", "Clark", role = c("aut", "cre"),
+                  email = "lvclark@illinois.edu")
+Author: Lindsay Clark [aut, cre]
+Maintainer: Lindsay Clark <lvclark@illinois.edu>
+Description: This package includes functions to estimate minor allele frequencies
+  from numerical SNP data, plot histograms of minor allele frequencies, and
+  filter SNP data based on minor allele frequencies.
+Url: https://github.com/lvclark/SNPfreq
+License: GPL-3
+```
+
+If your package needs functions from other packages in order to run,
+you should list those packages in a line that starts with `Imports:`.
+If there are other packages that might be useful together with your
+package but are not strictly necessary for using it, list them under
+`Suggests:`.
+
+Note the indentation in the `Description:` field.  If correct indentation is not
+used, it will cause problems with the package check.
+
+If you list a standard license in the `License:` field, you don't need a 
+separate LICENSE file.  If you have one (for example, automatically added
+by GitHub), either delete it or add it to .Rbuildignore.
+
+## Building and checking the package
+
+Now we have the bare minimum to make the package installable.  To make a file
+that we can install from, we'll **build**.  There are point-and-click tools
+in the upper right of RStudio for building, or you can type the following
+into your Terminal:
+
+```
+cd ..
+R CMD build SNPfreq --no-manual
+```
+
+Once the package builds, either **check** it using the tools in the upper right,
+or in the Terminal type the command:
+
+```
+R CMD check SNPfreq_0.0.tar.gz --no-manual
+```
+
+Here we are using `--no-manual` because we don't have a LaTeX compiler 
+installed on the lab computers.  On Windows I recommend MikTeX for this
+purpose.  It will let you see what your help pages will look like in PDF form.
+
+If there are errors, warnings, or notes, fix the package, then rebuild it
+and check it again.
+
+Once it is passing the package checks, it's a great time to make a 
+commit.  Your first working version of the package!
+
+Now you can install the package with:
+
+```
+R CMD INSTALL SNPfreq_0.0.tar.gz
+```
+
+Alternatively, within R you can install it with:
+
+```{r eval = FALSE}
+install.packages("SNPfreq_0.0.tar.gz", repos = NULL)
+```
+
+If you are on Windows, and you want to make a binary version of the package
+that someone can install without needing Rtools, run:
+
+```
+R CMD INSTALL SNPfreq_0.0.tar.gz --build
+```
+
+This will make a zip file, that can be installed within R:
+
+```{r eval = FALSE}
+install.packages("SNPfreq_0.0.zip", repos = NULL)
+```
+
+If you are on a Mac or Linux machine and you want to make a binary
+of your package for Windows, there is a web service that will do it
+for you: https://win-builder.r-project.org/
+
+The binary files `SNPfreq_0.0.tar.gz` and `SNPfreq_0.0.zip` can be attached
+when you make a release on GitHub.  That way, someone can easily download
+an installable version of your package.
+
+Regardless of what method you have used for installing the
+package, you should now be able to load it in R:
+
+```{r eval = FALSE}
+library(SNPfreq)
+```
+
+Check out the help file that you wrote:
+
+```{r eval = FALSE}
+?mafHist
+```
+
+Of course, the functions themselves should now be available,
+and you should see the SNPfreq environment in your drop-down
+list of environments.
+
+**Question to turn in:** Give me the URL to your R package, which should
+build and pass the package check.
+
+## Making a vignette -- for homework or if you have extra time
+
+Let's make a vignett with R Markdown  In your package directory, 
+make a new directory called "vignettes".
+
+In RStudio, make a new "R Markdown" file.  Save it into the "vignettes"
+directory, and give it some name with the .Rmd extension.  In the file
+header, after "Title"," "Author", "Date", and "Output" and before the closing `---`, add:
+
+```
+vignette: >
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteIndexEntry{A Tutorial for SNPfreq}
+```
+
+After a section header (`##`), write up a little 
+explanation of what one of the functions does.
+
+Next to the "Run" button you'll see a little "+C" button.  Click it to
+add a code chunk.  Now in that code chunk you can write some R code.
+Like the examples in your .Rd file, everything in the vignette will need
+do be executable on its own.  However, you can put some data files into
+the "vignettes" directory for the vignette code to read, for example by
+`load` or `read.table`.  For example we could put the "GGSNPs.RData" file
+into the "vignettes" directory if we wanted to be able to load it in the
+vignette.
+
+<code>
+&grave;&grave;&grave;{r}<br>
+library(SNPfreq)<br>
+load(\"GGSNPs.RData\")<br>
+myMAF <- minorAlleleFrequency(GGdata)<br>
+myMAF<br>
+&grave;&grave;&grave;<br>
+</code>
+
+Now click "Knit".  You should get a nice HTML version of your tutorial.
+
+You can probably add the HTML file to your .gitignore and .Rbuildignore files,
+since you will only need to track changes to the original R Markdown, the R
+build command will rebuild the HTML anyway, and GitHub won't display a rendered
+version of the HTML.
+
+You'll also have to modify the DESCRIPTION file to indicate that `knitr` is
+used for making the vignette.  Add the line `Imports: knitr`, or add knitr
+to the list if you already have an `Imports` line.  Also add the line
+`VignetteBuilder: knitr`.
+
+Build and check your package again. If there are any issues with the vignette,
+it will let you know, and you can fix them.  Once the package is installed,
+in the directory where it is installed there will be a `doc` directory with
+your vignette.  To prevent a note in your package check, you may need to also
+add a line like `importFrom("knitr", "knit2html")` to the NAMESPACE file.
+
+## Including a dataset in a package (also if you have extra time)
+
+You put an `.RData` file into the `vignettes` directory for building the
+vignette, but what if you want the user to have access to a dataset?  This
+can be handy so that they can follow along with the vignette and with the
+examples in the man pages.  Or, you might use an R package to distribute
+a real dataset that many people would need for their analysis.
+
+Take `GGSNPs.RData`, and rename it `GGdata.RData` so the file and object name
+match.  Now make a directory in your package called `data`, and move
+the `.RData` file there.  Then run
+
+```{r eval = FALSE}
+promptData(GGdata)
+```
+
+You'll get a file called `GGdata.Rd` that you can move into your `man`
+directory and edit to make a help page for the dataset.
+
+Then, in your vignette, you can change your code chunk to be:
+
+<code>
+&grave;&grave;&grave;{r}<br>
+library(SNPfreq)<br>
+data(GGdata)<br>
+myMAF <- minorAlleleFrequency(GGdata)<br>
+myMAF<br>
+&grave;&grave;&grave;<br>
+</code>
+
+You can also now call `data(GGdata)` in the Examples section of your help
+page(s) in the `man` folder.
+
+## A different way to include a dataset in a package (also if you have extra time)
+
+If you want to have a dataset accessible in a different file format
+(like a CSV), make a folder in your package directory called `inst`.
+Anything in this folder will be installed with the package; you could
+put in any custom files you wanted here.  The standard is to make a
+folder inside of `inst` called `extdata`.  There you can put files
+for datasets.
+
+Once the package is installed, you can get a path to where the
+file is with
+
+```{r}
+mypath <- system.file("extdata", "myfile.txt", package = "mypackage") 
+```
+
+where the second and third arguments are changed accordingly.  To 
+access the file in your examples and vignettes, use `system.file`,
+which will ensure that the path will work on someone else's computer.

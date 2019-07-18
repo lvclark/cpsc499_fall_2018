@@ -1,0 +1,230 @@
+---
+title: "Homework 2"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+In lecture and lab we had some examples using real datasets.  For this homework
+I'm providing some more abstract examples so that you can think about how the code
+is working and how to write it.
+
+## IF/ELSE syntax
+
+**1.** The following code gives an error.  How would you fix it?
+
+```{r echo = TRUE, error = TRUE}
+x <- 3
+if(x < 5){
+  print("Less than five")
+}
+else{
+  print("At least five")
+}
+```
+
+```{r eval = FALSE}
+# By putting `else` on the same line as the closing curly brace, 
+# we show R that the command is not done yet.
+x <- 3
+if(x < 5){
+  print("Less than five")
+} else { 
+  print("At least five")
+}
+```
+
+**2.** The following code works but is not well formatted.  Fix the formatting
+while retaining the same functionality.
+
+```{r echo = TRUE}
+x <- 3
+if(x > 7)
+print("Greater than seven")
+print("Probably a number")
+```
+
+```{r eval = FALSE}
+# probably the most readable:
+if(x > 7){
+  print("Greater than seven")
+}
+print("Probably a number")
+
+# also okay if you prefer it this way:
+if(x > 7) print("Greater than seven")
+
+print("Probably a number")
+
+# or
+if(x > 7)
+  print("Greater than seven")
+
+print("Probably a number")
+
+# Note that the last two only work for cases where there is only one line
+# under control of the IF statement.
+```
+
+## Loops
+
+**3.** We can use the `sample` function to draw a random integer.  For example, this
+command will get us one random integer from 1 to 1000.
+
+```{r echo = TRUE}
+sample(1000, 1)
+```
+
+Write a loop to do the following:  Draw a random integer.  If the integer is
+equal to 500, stop the loop.  Otherwise, try again.  Save the integer that is
+closest to 500 (the `abs` function might be helpful).  If 200 attempts have
+been made, stop the loop.  You can do this with `for`, `while`, or even `repeat`,
+depending on your preference.  After the loop has run, you should have a variable
+containing the closest integer to 500 that you found, and a variable indicating
+how many attempts were made.
+
+```{r}
+## example with a while loop ##
+
+# dummy value that will definitely be further than anything we will sample
+closest <- 10000 
+# variable to count up how many attempts we have made
+attempts <- 0
+while(closest != 500){
+  newint <- sample(1000, 1)
+  if(abs(newint - 500) < abs(closest - 500)){
+    closest <- newint
+  }
+  attempts <- attempts + 1
+  if(attempts >= 200) break
+}
+
+## example with a for loop ##
+closest <- 10000
+for(attempts in 1:200){
+  newint <- sample(1000, 1)
+  if(abs(newint - 500) < abs(closest - 500)){
+    closest <- newint
+  }
+  if(closest == 500) break
+}
+
+## example with repeat ##
+closest <- 10000
+attempts <- 0
+repeat{
+  newint <- sample(1000, 1)
+  if(abs(newint - 500) < abs(closest - 500)){
+    closest <- newint
+  }
+  if(closest == 500) break
+  attempts <- attempts + 1
+  if(attempts >= 200) break
+}
+```
+
+**4.** The following code loops through a vector, but attempts to make the vector
+shorter at the same time, eliminating the last element on each iteration.
+
+```{r echo = TRUE, eval = FALSE}
+myvect <- 1:20
+for(i in myvect){
+  cat(i, sep = "\n")
+  myvect <- myvect[-length(myvect)]
+}
+```
+
+What happens when you run this code?  What does `myvect` look like at the
+end?  How far through the vector did `i` get?  What does this tell you 
+about passing a vector to a `for` statement?
+
+```{r}
+# The numbers 1 through 20 are printed out.  `myvect` was reduced to an empty
+# vector because all 20 elements were removed, one at a time.  However, `i`
+# got all the way to 20.  When we passed `myvect` to `for`, a copy of `myvect`
+# was made for iteration, and was not affected by anything we did to the 
+# original.
+```
+
+**5.** Say you wanted to make a loop that mostly worked like a `for` loop,
+moving forward through a vector, but under certain conditions would move
+backwards through the vector.  How might you accomplish this?
+
+```{r eval = FALSE}
+# some vector that we want to loop through; let's take 100 random numbers
+myvect <- runif(100)
+# variable to hold the index
+i <- 1
+# instead of a for loop, make a while loop to check whether we have reached the end
+while(i <= length(myvect)){
+  print(myvect[i])
+  # increment i under some conditions, and decrement under others.
+  # for this example, we'll randomly decide.
+  rand <- runif(1)
+  if(rand < 0.95){
+    i <- i + 1
+  } else {
+    i <- i - 1
+  }
+}
+```
+
+## Functions
+
+**6.** Look at the following script:
+
+```{r echo = TRUE}
+miles_to_km <- function(dist){
+  dist <- dist * 1.60934
+  return(dist)
+}
+
+dist <- 5
+dist_km <- miles_to_km(dist = dist)
+```
+
+Is this going to cause any problems in terms of variable scope?
+
+```{r}
+# No, this is fine, and in fact it is often convenient to have variables
+# with the same names in different scopes if they represent the same thing.
+# Because there is an argument called dist, the miles_to_km will use that
+# dist and not bother searching for one in the global environment.
+```
+
+**7.** Can you define a function within the body of another function?
+What variable scopes would that function have access to?
+
+```{r eval = FALSE}
+# Yes. Here's an example.  The function has access to its own scope,
+# the scope of its containing function, and the global environment.
+
+# another version of our function for calculating stem volume
+stem_vol <- function(height, diam){
+  crossection_area <- function(diam){
+    return(pi * (diam/2) ^ 2)
+  }
+  
+  return(height * crossection_area(diam))
+}
+
+stem_vol(200, 0.4)
+
+# note this version will also work, although maybe it is not the best style
+stem_vol <- function(height, diam){
+  crossection_area <- function(){
+    return(pi * (diam/2) ^ 2)
+  }
+  
+  return(height * crossection_area())
+}
+
+stem_vol(200, 0.4)
+
+# Functions-within-functions can be especially handy when you are building
+# a long complicated function, and need to break the algorithm up into 
+# smaller chunks, but don't expect to use those chunks anywhere else.
+```
+

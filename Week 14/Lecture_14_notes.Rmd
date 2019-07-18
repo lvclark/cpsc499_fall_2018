@@ -1,0 +1,317 @@
+---
+title: "Lecture 14 Notes"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Sequence alignment, variant discovery, and variant annotation
+
+## Rpackages for today
+
+We'll need the following packages from Bioconductor.  Install them with
+`BiocManager::install` if you don't have them already.
+
+```{r message = FALSE, warning = FALSE}
+library(GenomicFeatures)   # should have from previous weeks
+library(VariantAnnotation) # new
+library(ggbio)             # new
+```
+
+## Files for today
+
+We'll work today with four FASTQ files from Thurber et al. (2013; 
+doi:10.1186/gb-2013-14-6-r68).  These were part of a study to determine genetic
+variation involved in climatic adaptation in sorghum.  Genomic DNA was digested
+with the restriction enzyme *Pst*I, then DNA adjacent to the cut sites was
+sequenced.  Each file represents one sample.  The four files can be downloaded
+from Compass, or to get them more quickly you can go to Run again and launch
+
+`\\ad.uillinois.edu\aces\Courses\CPSC\499\Fall 18\Students\sorghum`
+
+Also, download the files `Sbicolor_454_v3.0.1.hardmasked.fa.gz` and
+`Sbicolor_454_v3.1.1.gene_exons.gff3.gz` from Compass.  These are the reference
+genome and annotation, respectively.
+
+Put all of these files into a folder that is shared with the Ubuntu virtual
+machine.  You can leave the FASTQ files as they are, but unzip the reference
+genome files from the Ubuntu terminal:
+
+```
+gunzip Sbicolor_454_v3.0.1.hardmasked.fa.gz
+gunzip Sbicolor_454_v3.1.1.gene_exons.gff3.gz
+```
+
+## Building an index for sequence alignment with Bowtie2
+
+From the Ubuntu Terminal, run the command:
+
+```
+bowtie2-build Sbicolor_454_v3.0.1.hardmasked.fa Sbi3
+```
+
+(8 minutes)
+
+You'll see we called the `bowtie2-build` command with two arguments.  The first was the name of 
+the file containing the reference genome sequence.  The second, `Sbi3`, is just a shorthand that
+we'll use for this reference genome.  `Sbi3` will be used as a prefix for the file names containing
+the index.
+
+In the folder with your reference genome you should now see the files 
+Sbi3.1.bt2, Sbi3.2.bt2, Sbi3.3.bt2, Sbi3.4.bt2, Sbi3.rev.1.bt2, and 
+Sbi3.rev.2.bt2.  You'll never have to make those six files again (until a new 
+version of the genome comes out); you can use them as many times as you want 
+for doing alignments.
+
+## Making sequence alignments for your FASTQ files
+
+Now, to align our FASTQ files to the genome, we'll call `bowtie2` once per 
+file.  Create the following bash script to run Bowtie2 in a loop:
+
+```{bash eval = FALSE}
+#!/bin/bash
+
+for i in 1957 2051 2330 2519
+do
+bowtie2 -x Sbi3 -U SRR87${i}.fastq.gz -S SRR87${i}.sam
+done
+```
+
+(Don't run it yet.  We will add more to this script.)
+
+What are the arguments here?  `-x Sbi3` indicates that the index to use is our
+*Sorghum bicolor* v3 index.  `-U SRR871957.fastq.gz` indicates that we are using 
+unpaired (single-end) reads and shows Bowtie2 where to find the FASTQ file for 
+those reads.  `-S SRR871957.sam` indicates the name of the output file.  There 
+are other arguments if you have paired-end reads or if you want to change the 
+sensitivity of the alignment.  See `bowtie2 --help` for a list of all arguments.
+
+## Converting to BAM, sorting and indexing
+
+The SAM files are in the same order as the original FASTQ files, which is 
+random with respect to actual genomic positions.  
+
+```
+head SRR871957.sam
+```
+
+By converting to BAM format, 
+we can sort the files by chromosome and position instead.  We can also index 
+the file so that we can quickly pull data out of it by chromosome and position.
+
+Below are some commands using Samtools to convert the SAM files to BAM files, 
+sort the BAM files by position, then index them.  We'll add this code to our 
+alignment script so we can do everything at once.  The whole script will take 
+about a half hour to run on our virtual Ubuntu machines.
+
+```{bash eval = FALSE}
+#!/bin/bash
+
+for i in 1957 2051 2330 2519
+do
+bowtie2 -x Sbi3 -U SRR87${i}.fastq.gz -S SRR87${i}.sam
+samtools view -bS SRR87${i}.sam | samtools sort -o SRR87${i}.bam
+samtools index SRR87${i}.bam
+done
+```
+
+Now we will run this script in Linux using `sh`.
+
+## Variant calling with samtools
+
+Although we already made an index of the reference genome for Bowtie2, we'll make 
+another index that is specific for samtools using the `faidx` command.
+
+```
+samtools faidx Sbicolor_454_v3.0.1_hardmasked.fa
+```
+
+(1 minute)
+
+Then we'll use `mpileup` to convert the BAM files into "pileup" format, which stacks the
+reads on top of each other to find variants.  Because this step is slow, we'll
+just run it on a 0.5 Mb section of the sorghum genome so that we can deal with
+it in class.
+
+```
+samtools mpileup -g -r Chr01:10000000-15000000 -f Sbicolor_454_v3.0.1.hardmasked.fa SRR871957.bam SRR872051.bam SRR872330.bam SRR872519.bam > sorghum_small_pileup.bcf
+```
+
+In samtools there's another executable called bcftools with a command called 
+`call` that will do the actual SNP calling.
+
+```
+bcftools call -c -o sorghum_small_var.bcf sorghum_small_pileup.bcf 
+```
+
+A Perl script called vcfutils.pl is then used for SNP filtering.  This script 
+is probably somewhere on our computers with the installation of Samtools, but 
+can also just be downloaded at 
+https://raw.githubusercontent.com/samtools/bcftools/develop/misc/vcfutils.pl.
+
+```
+bcftools view sorghum_small_var.bcf | vcfutils.pl varFilter -D100 > sorghum_small_filtered.vcf
+```
+Open up your VCF file using the `less` command and take a look at the contents.  Press `q` to exit.
+
+## Importing the VCF into R
+
+Now we'll start working in R.
+
+Load the genome so we can get some information about chromosome lengths.  The
+`FaFile` function will actually make use of the index that we build with
+`samtools faidx`.
+
+```{r}
+sorghum_genome <- FaFile("Sbicolor_454_v3.0.1.hardmasked.fa")
+seqinfo(sorghum_genome)
+```
+
+Import your VCF file into R.
+
+```{r}
+sorghumVCF <- readVcf("sorghum_small_filtered.vcf", seqinfo(sorghum_genome))
+```
+
+The `header` function can be used to see some basic information.
+
+```{r}
+header(sorghumVCF)
+```
+
+As you might have guessed from our previous work with Bioconductor, it would be
+helpful to have our SNP positions in a `GRanges` object.  This has already been
+done and can be accessed with the `rowRanges` function.
+
+```{r}
+rowRanges(sorghumVCF)
+```
+
+The data stored in the genotypes fields are accessible with the `geno`
+function.  `GT` contains the actual genotypes, and the other fields contain
+information about read depth and quality.
+
+```{r}
+geno(sorghumVCF)
+geno(sorghumVCF)$GT[1:10,]
+```
+
+We can also do `genotypeToSnpMatrix` to get a numeric version of the genotypes.  
+It is in a binary format, but you can get a numeric format with `as`.
+
+```{r message=FALSE}
+genmat <- genotypeToSnpMatrix(sorghumVCF)$genotypes
+genmat
+nummat <- as(genmat, "numeric")
+nummat[,1:10]
+```
+
+With numeric genotypes we can do all sorts of analysis.  Here's a quick example where
+we get the average heterozygosity per sample.
+
+```{r}
+avghet <- rowMeans(nummat == 1, na.rm = TRUE)
+avghet
+```
+
+
+Information about individual SNPs can be accessed with the `info` function.  The header
+contains information about what these fields mean.  VCF format is flexible in that
+you can have custom fields both for SNPs and genotypes, as long as they are defined
+in the header.
+
+```{r}
+info(sorghumVCF)[1:5,]
+info(header(sorghumVCF))
+```
+
+Extract some of the integer or numeric columns from the `info` data frame and 
+make histograms with them to explore the variation in SNP quality.
+
+## Importing a subset of the data
+
+Our VCF file is fairly small, but it is easily possible to have one that is too large
+to read into memory all at once.  Luckily, we can specify a particular genetic region 
+for import.  First, we have to zip the VCF file and make an index of it.
+
+```{r eval = FALSE}
+bgzip("sorghum_small_filtered.vcf")
+indexTabix("sorghum_small_filtered.vcf.bgz", format = "vcf")
+```
+
+Then we'll make a `GRanges` object indicating which sequences we want to import.
+Here we'll import a smaller section of chromosome 1.
+
+```{r}
+smaller <- GRanges(seqnames = "Chr01",
+                 ranges = IRanges(11000000, 12000000))
+smallerVCF <- readVcf("sorghum_small_filtered.vcf.bgz", seqinfo(sorghum_genome), smaller)
+geno(smallerVCF)$GT[1:10,]
+```
+
+If you have time and want practice with what we did last week, import the sorghum 
+GFF3 file into a `TxDb` object (we'll be doing that below anyway) and make a 
+`GRanges` object specifying a group of transcripts or exons, then use that to 
+just import variants in those ranges.
+
+## Functional annotation of variants
+
+We know where all our SNPs are.  We have a genome annotation showing us where
+all the CDS are.  We have the ability to translate DNA to amino acid sequence.
+So, we can identify non-synonymous subtitutions and other mutations that 
+could change protein structure.
+
+First import the sorghum GFF3 file to a `TxDb` object.
+
+```{r}
+sorghumTxDb <- makeTxDbFromGFF("Sbicolor_454_v3.1.1.gene_exons.gff3",
+                              format = "gff3", dataSource = "Phytozome 12",
+                              organism = "Sorghum bicolor",
+                              chrominfo = seqinfo(sorghum_genome))
+```
+
+Then we can make a call to `predictCoding`.
+
+```{r results = "hide", warning = FALSE}
+sorghumCoding <- predictCoding(sorghumVCF, sorghumTxDb, 
+                                 sorghum_genome)
+sorghumCoding[1:10]
+```
+
+In the CONSEQUENCE column we can see some non-synonymous mutations as well as a 
+frameshift. We can make another `GRanges` object just with the frameshifts and
+one with just non-synonymous mutations.
+
+```{r}
+frameshifts <- mcols(sorghumCoding)$CONSEQUENCE == "frameshift"
+sum(frameshifts)
+frameshiftSNPs <- sorghumCoding[frameshifts]
+
+nonsyn <- mcols(sorghumCoding)$CONSEQUENCE == "nonsynonymous"
+nonsynSNPs <- sorghumCoding[nonsyn]
+```
+
+## Visualizing variant data
+
+We'll use the `ggbio` package from Bioconductor for visualizing our data.  It
+extends the `ggplot2` package, with lots of options for plotting genomic data.
+The `autoplot` function detects the class of an object and makes an appropriate
+plot.
+
+Here we will plot gene models from our `TxDb` object and `VCF` object, using a
+`GRanges` object to specify what region to plot.
+
+```{r message = FALSE}
+myregion <- GRanges("Chr01", IRanges(10080000, 10090000))
+p.genes <- autoplot(sorghumTxDb, which = myregion)
+p.snps <- autoplot(rowRanges(sorghumVCF), geom = "rect", col = "blue") + xlim(myregion)
+
+tracks(Genes = p.genes, SNPs = p.snps)
+```
+
+We could change the value of `myregion` to explore other regions.  You may also
+want to look at packages like `rtracklayer`, `Gviz`, `trackViewer`, and `Sushi`.
+
+

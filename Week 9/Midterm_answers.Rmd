@@ -1,0 +1,172 @@
+---
+title: "Midterm Part 2 Options"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Option 1 - Reading a SAM file
+
+In Lab 2, we used `read.table` to import a SAM file.  However, typical SAM 
+files can be many gigabytes, and we probably wouldn't want to read the 
+whole thing at once.  Make a function that conserves memory by reading
+a SAM file in chunks, filtering each chunk and discarding unneeded data before
+it goes on to the next chunk.
+
+The function should:
+
+* Accept two arguments: a file name, and the name of a chromosome for which to
+retain alignments.
+* Read the file 500 lines at a time, representing 500 sequencing reads.
+* Discard header lines starting with "@"
+* For each set of 500 reads, only keep reads that align to 
+the indicated chromosome.
+* For each set of 500 reads, only keep the first six columns of the file.
+* Output a single data frame containing all of the retained information from
+these six columns.
+
+```{r}
+readSAM <- function(samfile, chromosome){
+  # set up data frame for output
+  outdf <- data.frame(Name = c(), Flag = c(), Chromosome = c(),
+                      Position = c(), Quality = c(), CIGAR = c())
+  # open the connection
+  mycon <- file(samfile, open = "r")
+  # loop through the file
+  while(length(mylines <- readLines(mycon, 500))){
+    # skip header lines
+    mylines <- mylines[!grepl("^@", mylines)]
+    if(length(mylines) == 0) next
+    # split the lines by tab
+    mysplit <- strsplit(mylines, split = "\t")
+    # extract columns for a data frame
+    thisdf <- data.frame(Name = sapply(mysplit, function(x) x[1]),
+                         Flag = as.integer(sapply(mysplit, function(x) x[2])),
+                         Chromosome = sapply(mysplit, function(x) x[3]),
+                         Position = as.integer(sapply(mysplit, function(x) x[4])),
+                         Quality = as.integer(sapply(mysplit, function(x) x[5])),
+                         CIGAR = sapply(mysplit, function(x) x[6]),
+                         stringsAsFactors = FALSE)
+    # filter
+    thisdf <- thisdf[thisdf$Chromosome == chromosome,]
+    # add to output
+    outdf <- rbind(outdf, thisdf)
+  }
+  return(outdf)
+}
+```
+
+```{r echo = TRUE}
+samChr10 <- readSAM("Lab2_example_align.sam", "Chr10")
+head(samChr10)
+dim(samChr10)
+```
+
+Hint: `read.table` will give an error if there are zero lines left in the file,
+so you might choose a different function for reading the chunks, then convert
+the output to a data frame.
+
+## Option 2 - Interpreting the CIGAR string
+
+For this option, you can skip making a `readSAM` function and read the file the
+way we did in Lab 2.
+
+```{r echo = TRUE}
+samtab <- read.table("Lab2_example_align.sam", sep = "\t", comment.char = "@",
+                      stringsAsFactors = FALSE, fill = TRUE)
+samtab[[6]][1:50]
+```
+
+Column 6 is a CIGAR string, indicating how the read aligned to the reference.
+Each value contains a series of numbers, with each number indicating a number
+of nucleotides in the read, followed by letters.  `M` indicates "match", which
+in this case means the nucleotide in the reference had a corresponding 
+nucleotide in the read, whether or not they were the same nucleotide.  `I` 
+means the read had an insertion with respect to the reference, and `D`
+indicates the read had a deletion with respect to the reference.  So, for 
+example, in `4M4I6M1I77M` there were 4 bases matching to the reference,
+followed by a 4-base insertion, followed by six bases matching the reference,
+followed by a one-base insertion, followed by 77 bases matching the reference.
+
+Write a function to return the indices of reads containing a single deletion
+and no insertions.  Have it also return the length of the deletion and
+the total length of the two flanking matches.  (The two vectors can be returned
+as a data frame, or a list of vectors.)  The function can take the column of 
+CIGAR strings as its only argument.
+
+```{r}
+findDeletions <- function(cigar){
+  # make a regular expression to find strings representing single deletion
+  myindices <- grep("^[0-9]+M[0-9]+D[0-9]+M$", cigar)
+  # reduce the CIGAR string to just the number representing deletion length
+  lenD <- gsub("^[0-9]+M", "", gsub("D[0-9]+M$", "", cigar[myindices]))
+  lenD <- as.integer(lenD)
+  # similarly get the length of the first match
+  lenM1 <- as.integer(gsub("M[0-9]+D[0-9]+M$", "", cigar[myindices]))
+  # and the length of the second match
+  lenM2 <- gsub("^[0-9]+M[0-9]+D", "", gsub("M$", "", cigar[myindices]))
+  lenM2 <- as.integer(lenM2)
+  
+  # construct data frame to output
+  out <- data.frame(Index = myindices, Deletion_length = lenD, Match_length = lenM1 + lenM2)
+  return(out)
+}
+```
+
+```{r echo = TRUE}
+mydel <- findDeletions(samtab[[6]])
+dim(mydel)
+head(mydel)
+head(samtab[[6]][mydel$Index])
+```
+
+## Option 3 - Visualizing the SAM file
+
+For this option, import `samtab` as in option 2, then make a function to 
+visualize it.  Say you want to inspect the relationship between read length
+and alignment quality, and see how this differs between assembled chromosomes
+and scaffold sequences that have not yet been placed on a chromosome.
+
+* Put the length of the sequence read on the x-axis.  This information is not
+already in the table, but your function can determine the length by looking 
+at the sequence itself.
+* Put the quality score on the y-axis.  The quality score is the fifth 
+column of the SAM file.
+* Make a scatter plot and add some smoothing curves.
+* Be sure to filter out any unaligned reads.
+* Split the plot into two based on whether the read aligned to a chromosome
+("Chr") or a scaffold ("scaffold")
+
+```{r}
+visualizeSAM <- function(samtab){
+  require(ggplot2)
+  # add column names
+  colnames(samtab)[1:11] <- c("Name", "Flag", "Chromosome", "Position",
+                              "Quality", "CIGAR", "Chromosome2", "Position2",
+                              "Length", "Sequence", "SeqQuality")
+
+  # eliminate unaligned reads
+  samtab <- samtab[samtab$Chromosome != "*",]
+  # new column to indicate chromosome or scaffold
+  samtab$RefType <- character(nrow(samtab))
+  samtab$RefType[grep("^Chr", samtab$Chromosome)] <- "chromosome"
+  samtab$RefType[grep("^scaffold", samtab$Chromosome)] <- "scaffold"
+  # add sequence length to data frame
+  samtab$Length <- nchar(samtab$Sequence)
+  
+  # draw plot
+  g <- ggplot(samtab, aes(x = Length, y = Quality)) +
+    geom_point() + 
+    geom_smooth() +
+    facet_wrap(~ RefType)
+  
+  return(g)
+}
+```
+
+```{r echo = TRUE, message = FALSE}
+visualizeSAM(samtab)
+```
+

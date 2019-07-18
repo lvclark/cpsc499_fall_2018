@@ -1,0 +1,291 @@
+---
+title: "Lecture 15 notes"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Today we'll use genotypes from a VCF file to do genome-wide association 
+analysis and genomic selection.
+
+## Packages for today
+
+Remember to use `install.packages` for anything you need to install from CRAN,
+and `BiocManager::install` for anything you need to install from Bioconductor.
+
+```{r message = FALSE, warning = FALSE}
+# On CRAN
+library(rrBLUP)
+library(Matrix)
+library(bigmemory)
+library(biganalytics)
+library(compiler)
+library(gplots)
+library(LDheatmap)
+library(genetics)
+library(ape)
+library(EMMREML)
+library(scatterplot3d)
+
+# On Bioconductor
+library(VariantAnnotation)
+library(snpStats)
+library(multtest)
+```
+
+We'll also load two R scripts off the internet in order to use FarmCPU.
+
+```{r message = FALSE, warning = FALSE}
+source("http://zzlab.net/GAPIT/gapit_functions.txt")
+source("http://zzlab.net/FarmCPU/FarmCPU_functions.txt")
+```
+
+## Phenotype file
+
+On compass, I put a CSV with phenotypic data for the *Miscanthus sinensis*
+collection.  For every accession, it contains best linear unbiased predictors
+(BLUPs) of the phenotypic values across multiple replicates and field trial
+locations.
+
+```{r}
+stem_blups <- read.csv("Msinensis_blups.csv", header = TRUE, 
+                       stringsAsFactors = FALSE)
+
+# throw out those with missing data
+stem_blups <- stem_blups[!is.na(stem_blups$Stem_diameter),]
+
+head(stem_blups)
+```
+
+## Genotypes
+
+We have worked with a few versions of the dataset, but here we will stick with
+the output from Lab 5 since it is relatively small.
+
+```{r}
+myparam <- ScanVcfParam(fixed = "ALT", info = NA, geno = "GT")
+myvcf <- readVcf("Msinensis_chr01genes_filtered.vcf", param = myparam)
+
+myvcf
+```
+
+For statistical analysis, we will want genotypes in numeric format.
+
+```{r}
+chr01mat <- genotypeToSnpMatrix(myvcf)
+chr01num <- as(chr01mat$genotypes, "numeric")
+chr01num[1:10,1:10]
+```
+
+## Matching the datasets
+
+Let's get a list of accessions that were in both the phenotypic and genotypic
+dataset, to make sure we are working with the same samples.
+
+```{r}
+mysamples <- stem_blups$Genotype[stem_blups$Genotype %in% row.names(chr01num)]
+str(mysamples)
+```
+
+Then we can subset both the genotypic and phenotypic dataset by this vector.
+
+```{r}
+stem_blups <- stem_blups[match(mysamples, stem_blups$Genotype),]
+chr01num <- chr01num[mysamples, ]
+
+# sanity check
+head(stem_blups)
+chr01num[1:10,1:5]
+identical(stem_blups$Genotype, rownames(chr01num))
+```
+
+## Subsetting by minor allele frequency
+
+Now that we have the genotypes in a numeric matrix, we can calculate allele
+frequencies quickly.  Every individual can have up to two copies of an allele,
+so allele frequency in the population is the mean value for the SNP divided by
+two.
+
+```{r}
+alfreq <- colMeans(chr01num, na.rm = TRUE)/2
+hist(alfreq)
+```
+
+Since zero is the reference allele, it also tends to be the common allele, but
+there are some SNPs where the common allele is the alternative allele.
+
+By eliminating SNPs where the minor allele frequency is less than 0.05, we 
+not only eliminate SNPs where we lack statistical power to detect true
+associations, but also eliminate false positives that can occur when an
+individual with an extreme phenotype also happens to be the only individual
+posessing a particular allele.
+
+```{r}
+keepSNPs <- which(alfreq > 0.05 & alfreq < 0.95)
+
+chr01num_filt <- chr01num[, keepSNPs]
+```
+
+## Marker imputation
+
+Due to our filtering in Week 5, about 2% of genotypes are missing in this
+dataset.
+
+```{r}
+mean(is.na(chr01num_filt))
+```
+
+Imputation can be performed using linkage disequilibrium among nearby markers.
+However, there is very little linkage disequilibrium in this dataset, and so
+we can get a more accurate result using relatedness for imputation.  We will 
+use `rrBLUP` to simultaneously calculate the relationship matrix and impute
+missing genotypes.  Instead of genotypes being on a scale of 0 to 2, for 
+`rrBLUP` they must be on a scale of -1 to 1.
+
+```{r}
+Msi_A <- A.mat(chr01num_filt - 1, impute.method = "EM", return.imputed = TRUE)
+chr01num_imputed <- Msi_A$imputed + 1
+```
+
+## Formatting for FarmCPU
+
+See http://www.zzlab.net/FarmCPU/FarmCPU_help_document.pdf
+
+For both the genotypes and phenotypes, we need a column called "taxa".
+
+```{r}
+names(stem_blups)[1] <- "Taxa"
+myGD <- data.frame(taxa = mysamples, chr01num_imputed)
+```
+
+Then we also need a data frame with the alignment information.  We could
+get it out of the `rowRanges` from the VCF, or in this case parse it from
+the SNP names.
+
+```{r}
+snpnames <- colnames(chr01num_imputed)
+myGM <- data.frame(SNP = snpnames,
+                   Chromosome = as.integer(substring(snpnames, 2, 3)),
+                   Position = as.integer(sub("^S.._", "", snpnames)))
+head(myGM)
+```
+
+## Running FarmCPU
+
+Now we can run FarmCPU.  Make a folder inside your working directory called
+"FarmCPU" and move into it.  Output files will be written there.
+
+```{r warning = FALSE, message = FALSE, cache = TRUE}
+setwd("FarmCPU")
+
+results <- FarmCPU(Y = stem_blups[,1:2], GM = myGM, GD = myGD)
+```
+
+## Examining the results
+
+A Manhattan plot was output to the FarmCPU directory, and can be opened and
+examined.  Which SNPs were significant after multiple testing correction?
+
+```{r}
+results$GWAS$fdr <- p.adjust(results$GWAS$P.value, method = "fdr")
+sigsnps <- as.character(results$GWAS$SNP[which(results$GWAS$fdr < 0.05)])
+sigsnps
+```
+
+It can be helpful to make a scatter plot of genotype vs. phenotype.
+
+```{r}
+mySNP <- sigsnps[1]
+plot(chr01num_imputed[,mySNP], stem_blups$Stem_diameter,
+     xlab = "Genotype", ylab = "Stem diameter BLUP",
+     main = mySNP)
+abline(lm(stem_blups$Stem_diameter ~ chr01num_imputed[,mySNP]), col = "blue")
+```
+
+We could also look up candidate genes in a `TxDb` object, using what we have
+learned in previous weeks.
+
+## Genomic prediction
+
+The GWAS identifies locations where we have the statistical power to identify
+an association.  How well can we predict stem diameter from these SNPs?
+
+```{r}
+myLM <- lm(stem_blups$Stem_diameter ~ chr01num_imputed[, sigsnps])
+summary(myLM)
+```
+
+We get an adjusted R-squared of 38%.  This is certainly an overestimate, 
+especially since we are only looking at one out of nineteen chromosomes.
+It is likely that these SNPs also carry a signal of population structure,
+reflecting SNPs across the genome that affect stem diameter and have a 
+similar pattern of diversity.
+
+Genomic prediction uses all available markers at once, assuming there are
+many small effects that we can't detect with GWAS, and also using the
+effects of population structure and relatedness across all SNPs.
+
+If we assume that every marker in the genome has equal variance in terms of
+how much it is impacting the phenotype, we can reduce all markers to an
+additive relationship matrix and predict phenotypes from that.  The
+relationship matrix that we made before is what we will put into the
+genomic prediction function.
+
+```{r}
+mypred <- kin.blup(stem_blups, "Taxa", "Stem_diameter", K = Msi_A$A)
+plot(stem_blups$Stem_diameter, mypred$pred, xlab = "Known BLUP value",
+     ylab = "Predicted value")
+cor(stem_blups$Stem_diameter, mypred$pred) ^ 2
+```
+
+Now we have explained 83% of the variance, as opposed to 38%.
+
+## Cross validation
+
+This model was cheating slightly, since all of the values that we were
+predicting also went into the model.  We can try something else called
+five-fold cross validation, where we see what happens when we mask
+1/5 of the phenotypes.  We will do random subsets each time, and try
+it ten times, although 100 or more would be advisable in a real situation.
+
+```{r message = FALSE}
+group_indices <- list(1:111,
+                      112:222,
+                      223:333,
+                      334:445,
+                      446:557)
+
+nreps <- 10 # number of reps
+
+# matrix to hold results
+GEBVs <- matrix(nrow = length(mysamples), ncol = nreps,
+                dimnames = list(mysamples, NULL))
+for(i in 1:nreps){
+  # randomly rearrange sample order
+  thissamples <- sample(mysamples)
+  for(j in 1:5){
+    # determine which samples to mask
+    masksamples <- thissamples[group_indices[[j]]]
+    
+    # get phenotypes and make the appropriate ones NA
+    thisphen <- stem_blups[, 1:2]
+    thisphen[match(masksamples, thisphen$Taxa), "Stem_diameter"] <- NA
+    
+    # run genomic prediction
+    thispred <- kin.blup(thisphen, "Taxa", "Stem_diameter", K = Msi_A$A)
+    
+    # fill in matrix
+    GEBVs[masksamples, i] <- thispred$pred[masksamples]
+  }
+}
+
+# get mean GEBVs and see how they compare to real values
+mean_GEBVs <- rowMeans(GEBVs)
+plot(stem_blups$Stem_diameter, mean_GEBVs, xlab = "Known BLUP value",
+     ylab = "Predicted value")
+cor(stem_blups$Stem_diameter, mean_GEBVs) ^ 2
+```
+
+Here we just see 32% of variation explained.

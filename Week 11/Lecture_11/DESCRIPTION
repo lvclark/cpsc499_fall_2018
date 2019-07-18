@@ -1,0 +1,8 @@
+Package: GPS
+Date: 2018-11-06
+Version: 0.0
+Title: S3 Classes for GPS Data
+Author: Lindsay Clark [aut, cre]
+Maintainer: Lindsay Clark <lvclark@illinois.edu>
+Description: This package has S3 classes.
+License: GPL-3

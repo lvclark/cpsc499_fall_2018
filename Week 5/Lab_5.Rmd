@@ -1,0 +1,152 @@
+---
+title: "Lab 5: Converting file formats"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+## Data for today
+
+Today we'll work with a Variant Call Format (VCF) file.  The format is documented
+in full here: https://samtools.github.io/hts-specs/VCFv4.3.pdf
+
+VCFs contain information about SNP (or other sequence variant) genotypes across
+many genomic locations in one or more individuals.  Markers are in rows, and
+individuals are in columns.  The format is very flexible, and typically a VCF
+file starts with a long set of header lines explaining the format.
+
+The file "Msinensis_chr01genes.vcf" contains genotypes for a collection of
+*Miscanthus sinensis* individuals, including only loci within genes on 
+chromosome 1.
+
+## Previewing the data
+
+Since the file is almost a fifth of a gigabyte, it would be cumbersome to open
+it in Notepad or Excel to preview it.  However, in a scripting language like R
+we can read the file in smaller chunks.
+
+**Question 1 to turn in:**  Not knowing anything about the file, write a few 
+lines of code to preview its contents.  What character is used for delimiting
+columns in the SNP table?
+
+```{r results = "hide"}
+myfile <- "Msinensis_chr01genes.vcf"
+
+# just reading some lines with readLines
+testlines <- readLines(myfile, 30)
+testlines[1:10]
+testlines[11:20]
+testlines[21:30]
+
+# alternative: opening a connection to read from the file until done
+mycon <- file(myfile, open = "r")
+readLines(mycon, 10)
+readLines(mycon, 10)
+readLines(mycon, 10)
+close(mycon)
+```
+
+## Filtering the data
+
+Before importing with `read.table`, let's filter this dataset down to a smaller
+size.  Say we only want to keep SNPs (lines of the file) that have missing data
+for 50 or fewer individuals.  If a genotype field starts with a period, the 
+genotype is missing.  Use the following protocol:
+
+1) Open a connection to read the input file.  Open another connection to a 
+differently-named file that you will write the filtered output to.
+2) Construct a `while` loop to read through the input file 500 lines at a time
+with `readLines` until the end is reached.
+3) If a line starts with `"#"`, send it to the output file.
+4) If the line does not start with `"#"`, use `gregexpr` with the regular expression
+`"\t\\.:"` to count up how much missing data it has and determine whether or not
+to output it.
+5) Close both connections when done.
+
+Alternatively, you can use appending instead of leaving the output file connection
+open during the process.
+
+**Question 2 to turn in:** Turn in the code for performing the above process.
+
+```{r eval = FALSE}
+incon <- file(myfile, open = 'r')
+outcon <- file("Msinensis_chr01genes_filtered.vcf", open = 'w')
+
+total_lines_read <- 0
+
+while(length(mylines <- readLines(incon, 500))){
+  # determine which (if any) lines are headers
+  headers <- substr(mylines, 1, 1) == "#"
+  # determine which lines have 100 or fewer missing data points
+  missing_matches <- gregexpr("\t\\.:", mylines)
+  pass_filter <- logical(length(mylines))
+  for(i in 1:length(mylines)){
+    pass_filter[i] <- length(missing_matches[[i]]) <= 50
+  }
+  
+  # output lines
+  outlines <- mylines[headers | pass_filter]
+  writeLines(outlines, outcon)
+  
+  # print message
+  total_lines_read <- total_lines_read + length(mylines)
+  message(paste(total_lines_read, "lines read."))
+}
+close(incon)
+close(outcon)
+```
+
+Hints:
+
+You might have your loop print some message so you know how far it has gotten,
+and confirm that it really ends when it reaches the end of the file.
+
+If you make a mistake and your loop runs forever, either use the stop sign
+button or Session --> Interrupt R.
+
+The output file size should be 90.6 Mb.
+
+## Format conversion
+
+Read in the filtered file:
+
+```{r echo = TRUE}
+mycon <- file("Msinensis_chr01genes_filtered.vcf", open = "r")
+headers <- readLines(mycon, 12)
+
+geno_tab <- read.table(mycon, header = TRUE, sep = "\t", 
+                       stringsAsFactors = FALSE, comment.char = "")
+close(mycon)
+```
+
+Modify the data frame in the following ways:
+
+* Eliminate the QUAL, FILTER, INFO, and FORMAT columns
+* For the genotype columns (all columns after FORMAT), if it starts with `".:"`,
+replace the whole string with `""`.  If it starts with `"0/0:"`, replace the whole
+string with `"0"`.  If it starts with `"0/1:"` or `"1/0:"`, replace the whole string
+with `"1"`.  If it starts with `"1/1:"`, replace the whole string with `"2"`.
+* Write the resulting data frame to a CSV.
+
+**Question 3 to turn in:** Turn in the code for the above three bullet points.
+
+```{r eval = FALSE}
+# remove unwanted columns
+geno_tab <- geno_tab[,-(6:9)]
+# reformat genotype cells
+for(i in 6:ncol(geno_tab)){
+  geno_tab[[i]] <- sub("^\\.:.*", "", geno_tab[[i]])
+  geno_tab[[i]] <- sub("^0/0:.*", "0", geno_tab[[i]])
+  geno_tab[[i]] <- sub("^0/1:.*", "1", geno_tab[[i]])
+  geno_tab[[i]] <- sub("^1/0:.*", "1", geno_tab[[i]])
+  geno_tab[[i]] <- sub("^1/1:.*", "2", geno_tab[[i]])
+}
+write.csv(geno_tab, file = "genotypes.csv")
+```
+
+Hint: The output file size is 14.5 Mb.
+
+There are some SNPs with more than two alleles, and the conversion doesn't
+have to work correctly for those in order for you to get credit.

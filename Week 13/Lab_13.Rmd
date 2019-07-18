@@ -1,0 +1,273 @@
+---
+title: "Lab 13"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+In this lab we'll run through differential expression analysis using Salmon
+and DESeq2.  Instructions are provided for running Salmon and importing the
+results to Bioconductor, then you can pick up with the Lecture 13 Notes for
+how to run DESeq2.
+
+## Building the Salmon index
+
+Launch the Ubuntu virtual machine.  Move into your shared directory with the
+files.
+
+```
+cd /media/sf_ricedata/
+```
+
+Now we'll build an alignment index for Salmon.
+
+```
+salmon index -t Osativa_323_v7.0.transcript.fa.gz -i rice_index
+```
+
+This will create a folder called `rice_index` containing files that Salmon
+will use to quickly identify which read belongs to which transcript.
+
+## Quantifying reads belonging to transcripts
+
+Since we have nine files to process, it will be easiest to loop through them.
+
+Run
+
+```
+nano quant.sh
+```
+
+to open a text editor for a script.  Fill in the script as:
+
+```{bash eval = FALSE}
+#!/bin/bash
+
+for n in 49 50 51 52 53 54 55 56 57
+do
+echo $n
+salmon quant -i rice_index -l A -r DRR0003${n}.fastq -o DRR0003${n}_quant
+done
+```
+
+Depending on time, you can try adding the `--gcBias` flag to your `salmon quant`
+command to improve quantification quality.  The Salmon results that I put on
+Compass were made using the above script, without the `--gcBias` flag, although
+it is generally a good idea to use it.
+
+Press Ctrl-O to save, hit Enter to keep the file name, then Ctrl-X to quit.
+
+Now run the script:
+
+```
+sh quant.sh
+```
+
+Once it is done, you should have a folder for each of the FASTQ files that
+you quantified.
+
+## Importing Salmon output to DESeq2
+
+Open up RStudio in Windows.
+Load the packages for today.  Any that you don't have can be installed with 
+`BiocManager::install` or `install.packages` as appropriate.
+
+```{r message = FALSE, warning = FALSE}
+# from Bioconductor; get wtih BiocManager::install
+library(tximport)
+library(DESeq2)
+library(GenomicFeatures)
+
+# from CRAN; get with install.packages
+library(readr) 
+library(ggplot2)
+library(ggbeeswarm)
+library(pheatmap)
+```
+
+We need to set up a table of sample information.
+
+```{r}
+rice_sam <- data.frame(row.names = paste("DRR0003", 49:57, sep = ""),
+                       tissue = c("root", "shoot")[c(2,1,2,1,2,1,2,1,1)],
+                       treatment = c("control", "salinity_stress")[c(1,1,2,2,1,1,2,2,2)],
+                       run = paste("DRR0003", 49:57, sep = ""))
+rice_sam
+```
+
+We will also need a list of files contining the quantification results.  Make
+sure that whatever paths you create with `file.path` are correct with respect
+to your current working directory.
+
+```{r}
+rice_quant_files <- file.path("Salmon_output", paste(rice_sam$run, "_quant", sep = ""), "quant.sf")
+names(rice_quant_files) <- rice_sam$run
+rice_quant_files
+```
+
+For `tximport`, we need a data frame indicating how transcripts correspond
+to genes.  We can make this from a `TxDb` object.
+
+```{r message = FALSE, cache = TRUE}
+rice_TxDb <- makeTxDbFromGFF("Osativa_323_v7.0.gene.gff3.gz", format = "gff3",
+                             dataSource = "Phytozome 12", organism = "Oryza sativa")
+
+k <- keys(rice_TxDb, keytype = "TXNAME")
+tx2gene <- select(rice_TxDb, k, "GENEID", "TXNAME")
+head(tx2gene)
+```
+
+If you are having problems reading the GFF3 file (since some of the lab 
+computers have issues with gzipped files), go into the Linux virtual machine
+and do:
+
+```
+cd /media/sf_ricedata
+gunzip Osativa_323_v7.0.gene.gff3.gz
+```
+
+Then you can try `makeTxDbFromGFF` again, but remove the `.gz` from the end of
+the file name.
+
+Now, we can import the matrix of gene expression quantities, then create a
+`DESeqDataSet` from them.
+
+```{r, cache = TRUE}
+txi <- tximport(rice_quant_files, type = "salmon", tx2gene = tx2gene)
+riceDESeq_salmon <- DESeqDataSetFromTximport(txi, colData = rice_sam,
+                                             design = ~ tissue + treatment)
+```
+
+## Processing the dataset
+
+Go through the same workflow that we did on Tuesday to identify differentially
+expressed genes.
+
+* Filter out any genes with very low read depth.
+* Make a transformed version of the dataset to use for visualization.
+* Check that samples are clustering in a way that makes sense.
+* Run the DESeq analysis.
+* Identify interesting genes using the same criteria as before.
+* Make scatter plots and heat maps to look at the expression of significant genes.
+
+For comparison, you can look at our results from Lecture 13 using TopHat:
+
+```{r}
+load("lecture13results.RData")
+```
+
+```{r echo = FALSE, eval = FALSE}
+# filter out low read depth genes
+riceDESeq_salmon <- riceDESeq_salmon[rowSums(counts(riceDESeq_salmon)) > 1, ]
+
+# normalize for visualization
+riceDESeqRlog <- rlog(riceDESeq_salmon, blind = FALSE)
+
+# get a heat map of samples
+riceDist <- as.matrix(dist(t(assay(riceDESeqRlog))))
+riceDist
+newNames <- paste(349:357, rice_sam$tissue, rice_sam$treatment)
+rownames(riceDist) <- newNames
+colnames(riceDist) <- newNames
+heatmap(riceDist)
+
+# run the model
+riceDESeq_salmon <- DESeq(riceDESeq_salmon)
+
+# look at results with LFC threshold of one 
+riceResults <- results(riceDESeq_salmon, lfcThreshold = 1)
+summary(riceResults)
+
+# find interesting genes
+interestingGenes_salmon <- row.names(riceResults)[which((riceResults$log2FoldChange > 1 |
+                                                   riceResults$log2FoldChange < -1) &
+                                                   riceResults$padj < 0.05)]
+# sort them so most significant are first
+interestingGenes_salmon <-
+  interestingGenes_salmon[order(riceResults[interestingGenes_salmon, "padj"])]
+
+str(interestingGenes)
+
+# get gene annotations
+riceDefline <- read.delim("Osativa_323_v7.0.defline.txt",
+                          header = FALSE, row.names = 1,
+                          stringsAsFactors = FALSE)
+riceDefline[interestingGenes_salmon[1:20],2]
+```
+
+## Questions to answer
+
+* How did Salmon compare to TopHat in terms of the number of significant genes
+found?  What does this tell you about the sensistivity of the two methods?
+
+```{r echo = FALSE}
+# 238 significant genes were found using Salmon, compared to 223 using TopHat.
+# TopHat is mostly adequate, but Salmon is slightly more sensitive.
+```
+
+* Identify a gene that was significant using one method but not the other.
+Compare `plotCounts` for that gene using the output from TopHat (`riceDESeq`)
+versus Salmon (`riceDESeq_salmon`).  How is it different, and why do you think
+the gene was significant with one method but not the other?
+
+```{r echo = FALSE, eval = FALSE}
+# find all that were only significant with Salmon
+salmon_only <- 
+  interestingGenes_salmon[!interestingGenes_salmon %in% interestingGenes]
+
+lookat <- salmon_only[1]
+
+plot1 <- plotCounts(riceDESeq, lookat, intgroup = c("treatment", "tissue"),
+                    returnData = TRUE)
+
+ggplot(plot1, aes(x = treatment, y = count, col = tissue)) +
+  geom_beeswarm(cex = 2) + 
+  ggtitle(lookat)
+
+plot2 <- plotCounts(riceDESeq_salmon, lookat, intgroup = c("treatment", "tissue"),
+                    returnData = TRUE)
+
+ggplot(plot2, aes(x = treatment, y = count, col = tissue)) +
+  geom_beeswarm(cex = 2) + 
+  ggtitle(lookat)
+
+## For gene LOC_Os01g19330, the expression levels for the control were ~25 with
+## TopHat, but ~0 with Salmon.  Expression in shoots under salinity stress was
+## higher than the control with Salmon only.
+## (You may pick another gene and give your explanation.)
+
+riceDefline[lookat,2] # transcription factor
+```
+
+* Make gene expression heatmaps for the twenty most significant genes, for
+all significant genes, and for a random set of genes.  How do the samples 
+cluster differently depending on what genes are included?
+
+```{r echo = FALSE, eval = FALSE}
+# With the top 20 hits, samples are grouped by treatment, then tissue
+to_plot_20 <- assay(riceDESeqRlog[interestingGenes_salmon[1:20], ])
+
+to_plot_20 <- to_plot_20 - rowMeans(to_plot_20) # center each gene
+
+pheatmap(to_plot_20, annotation_col = rice_sam[,c("tissue", "treatment")])
+
+# With all significant genes, the shoot samples are grouped together,
+# then the root control with them.  The treated roots are grouped
+# separately from everything else.
+to_plot_all <- assay(riceDESeqRlog[interestingGenes_salmon, ])
+
+to_plot_all <- to_plot_all - rowMeans(to_plot_all) # center each gene
+
+pheatmap(to_plot_all, annotation_col = rice_sam[,c("tissue", "treatment")])
+
+# With a random set of genes, the samples are grouped first by tissue, then
+# treatment.
+to_plot_rand <- assay(riceDESeqRlog[sample(31586, 100), ])
+
+to_plot_rand <- to_plot_rand - rowMeans(to_plot_rand) # center each gene
+
+pheatmap(to_plot_rand, annotation_col = rice_sam[,c("tissue", "treatment")])
+```
+

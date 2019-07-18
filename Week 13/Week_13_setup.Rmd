@@ -1,0 +1,138 @@
+---
+title: "Week 13 setup"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Using Ubuntu through VirtualBox
+
+Ubuntu is one of the more user-friendly varieties of Linux, so we will use it
+for running some bioinformatics tools that are Linux-only.  By using VirtualBox,
+we'll use the lab computers to emulate computers running Ubuntu.  Because
+our computers are emulating other computers, the emulated computers are not
+going to be very powerful, so they may run a little slowly.  In a real situation,
+you would want to have a computer with Ubuntu or another flavor of Linux 
+installed on it, and not use VirtualBox.
+
+If you don't have the Ubuntu virtual machine set up yet, follow the 
+instructions in the Week 8 folder.
+
+## Set up a shared folder in VirtualBox
+
+We'll want to be able to go back and forth between Linux and Windows.  Launch
+Oracle VirtualBox, and before launching the virtual machine, click Settings.
+There will be an option to add a shared folder.  Make a folder called `ricedata`
+on your computer and set it up as a shared folder here.  Check "auto-mount".
+
+Also in Settings, click the button that looks like a CD with a "+" on it to
+add an optical drive.  Select "Leave Empty".
+
+Now click "Start" to launch the Ubuntu virtual machine.  Give it a few minutes
+to start up.
+
+In the "Devices" menu, click "Insert Guest Additions CD image".
+When the dialog pops up, click "Run".  The super user (`sudo`) password is
+`R_is_great`.
+
+After the Guest Additions are done installing, eject the virtual CD.
+
+Right click on the desktop and select "Open Terminal".  Type
+
+```
+sudo adduser cpsc499r vboxsf
+```
+
+`sudo` on Linux means "run as administrator".  So, you'll often use `sudo`
+when you need to install or update something.  The `sudo` password on the 
+virtual machine is `R_is_great`.  `cpsc499r` is your user name.
+
+Now reboot the virtual machine, using the power icon in the upper right corner.
+
+Open the Terminal again.  You should be able to execute the command
+
+```
+cd /media/sf_ricedata
+```
+
+without being told "Permission denied".
+
+## Obtaining the RNAseq files
+
+The SRA, or Sequence Read Archive, is a service provided by NCBI (the National
+Center for Biotechnology Information) where the raw output of next-generation
+DNA sequencing experiments is stored.  If you are generating sequencing data
+for your project, you should consider archiving it there when you are close
+to publishing.  The various data archived there can be browsed using a web
+browser, but since the files to download are very large, command line tools
+are needed in order to dowload them.
+
+You can learn more about the files that we'll be using here: 
+https://trace.ncbi.nlm.nih.gov/Traces/study/?acc=DRP000159
+and here: https://trace.ncbi.nlm.nih.gov/Traces/sra/?study=DRP000159
+
+### Getting the FASTQ files off of the shared drive
+
+In the Windows Start Menu, type "Run" to open the Run command.  Then enter
+
+`"\\ad.uillinois.edu\aces\Courses\CPSC\499\Fall 18\Students\ricedata"`
+
+Copy the files from here into the folder on your computer that you set up
+to share with the virtual machine.  Assuming this works fine, you can skip
+the section below about getting the FASTQ files from NCBI using the SRA 
+Toolkit.
+
+These FASTQ files will be used in Thursday's lab.  In the "TophatSAM" folder,
+there are also some BAM files.  If you want to recreate the whole analysis
+from Tuesday's lecture you would need all of them, but for the sake of time
+you can just download one BAM file.
+
+### Getting the FASTQ files straight from NCBI
+
+#### Linux
+
+On the Terminal in Ubuntu, install the SRA Toolkit by typing
+
+```
+sudo apt install sra-toolkit
+```
+
+Next, set up a folder to contain the data.  In this example, I'll put a 
+folder into Documents and call it "ricedata".  You can do that from the
+graphical file browser, or from the command line:
+
+```
+mkdir ~/Documents/ricedata
+```
+
+Remember that `~` stands for your home directory, which is the directory
+named after your user name (`cpsc499r`).
+
+Now, from the SRA Toolkit, you can use the `fastq-dump` command to download
+the FASTQ files from SRA.
+
+```
+fastq-dump -O ~/Documents/ricedata DRR000349 DRR000350 DRR000351 DRR000352 DRR000353 DRR000354 DRR000355 DRR000356 DRR000357
+```
+
+(All one line)
+
+#### Windows
+
+Download the Windows version of the SRA Toolkit from https://www.ncbi.nlm.nih.gov/sra/docs/toolkitsoft/.
+Unzip it, and look for the `bin` directory with executable files in it.  Navigate to that directory
+from the Command Prompt using `cd`, then run
+
+```
+fastq-dump.exe -O myfolder DRR000349 DRR000350 DRR000351 DRR000352 DRR000353 DRR000354 DRR000355 DRR000356 DRR000357
+```
+
+Where `myfolder` is the place where you want to save the files.
+
+## Obtaining the reference transcriptome and genome
+
+These are actually a much smaller files.  I downloaded them from Phytozome, and put
+them on Compass (Rice genome files from Phytozome).  Download these to the folder that
+is shared with your virtual machine.

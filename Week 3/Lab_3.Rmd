@@ -1,0 +1,218 @@
+---
+title: "Lab 3"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Manhattan plots (3 points)
+
+If you have performed genome-wide association analysis (GWAS), or any other analysis
+that yields a p-value for each of many loci across the genome, you are probably
+familiar with Manhattan plots.  They are named because they can resemble the
+Manhattan skyline, with points of light coming from skyscrapers of a variety of
+heights.  Peaks indicate locations in the genome where a strong association was
+found.
+
+You can see an example here: https://www.nature.com/articles/ncomms15789/figures/1
+Genomic location is on the x-axis, and the negative log base 10 of the p-value is
+on the y-axis.  That way, very low p-values will have high values on the y-axis,
+indicating statistical significance.  Frequently, one or more horizontal lines are
+included to indicate various significance thresholds.
+
+The file "Msi_yield_GWAS_results.csv" contains output from the software GAPIT,
+indicating GWAS results
+for biomass yield in *Miscanthus sinensis*.  There are columns indicating 
+chromosome and position in basepairs (aligned to the *Sorghum bicolor* 
+reference), as well as linear regression results, including p-values.
+Chromosome "11" in this case is a placeholder for markers that could not be
+aligned to the genome.
+
+```{r echo = TRUE, eval = TRUE}
+yieldGWAS <- read.csv("Msi_yield_GWAS.csv", stringsAsFactors = FALSE)
+str(yieldGWAS)
+head(yieldGWAS)
+```
+
+Of course, since Manhattan plots are so popular, there are already multiple
+implementations available in R.  But for this exercise, pretend that those
+don't meet your needs and you want to **create your own custom function**.  It
+should accept a data frame, imported from your GAPIT results, as an argument,
+and create a Manhattan plot from that.
+
+**Requirements**
+
+* Is a function
+* Accepts a data frame formatted like `yieldGWAS`
+* Plots all genomic locations, ordered by chromosome then position, on the x-axis
+* Plots -log10(p) on the y-axis
+* Chromosomes are plotted in different colors
+* Axis labels are meaningful
+* Significance threshold lines are drawn at optional user-defined thresholds
+* Use of either R base graphics system or `ggplot2` okay
+
+**Not a requirement, but try if you have extra time**
+
+* Put tick marks and labels on the x-axis to indicate chromosome numbers
+* Color scheme is color-blind friendly
+* Adjust the plotting margins to something that looks nice
+* Add text labels for SNPs above threshold
+* Filter out non-significant SNPs (say P > 0.05) to make the plot quicker
+* Give meaningful errors if the data are not formatted correctly
+
+**Hints:**
+
+Essentially you are creating a scatter plot, like you could make with `plot` or
+`geom_point`.  What should go on the x-axis, if you want to display all 
+chromosomes in one plot?  It might be helpful to sort the data frame by
+chromosome and position, then plot all of the transformed p-values in order.
+Experiment with what happens when you only give `plot` an `x` argument and not
+a `y` argument.
+
+The `log10` function can be used for transforming your p-values.  Simply put a 
+`-` sign in front of it to change negative values to positive values.
+
+If you are using `ggplot`, you might put the call `require(ggplot2)` inside the
+function body.  If `ggplot2` isn't loaded, `require` will load it like `library`
+would.  (Note that you shouldn't use `require` inside functions that are part of
+R packages.  I'll show you the correct way to indicate dependencies when we get
+to that part of the course.)
+
+With `plot`, text for axis labels can be set with the `xlab` and `ylab` arguments.
+In `ggplot2`, the `xlab` and `ylab` functions can be used.
+
+`abline` can be used for making horizontal lines in the base system. `geom_hline`
+can be used for making horizontal lines with `ggplot2`.
+
+`nrow` tells you how many rows are in a data frame.
+
+You can test your final function on "Msi_heights_GWAS_results.csv" as well to make
+sure it will work on different datasets.
+
+```{r echo = FALSE}
+# function to make a manhattan plot from GAPIT results.
+# this version uses the R base.
+manhattan <- function(gwastab, threshold.lines = numeric(0)){
+  require(viridis)
+  
+  # order on genome; x values for plotting
+  plotorder <- order(gwastab$Chromosome, gwastab$Position)
+  gwastab <- gwastab[plotorder,]
+  # filter SNPs not worth plotting (not required for full credit)
+  gwastab <- gwastab[gwastab$P.value < 0.05,]
+  # transform the p-values
+  transp <- -log10(gwastab$P.value)
+  
+  # make colors for chromosomes
+  chrnames <- sort(unique(gwastab$Chromosome))
+  nchr <- length(chrnames) # number of chromosomes
+  allcol <- viridis(nchr)
+  # shuffle the colors (this is fancier than needed for full credit)
+  allcol <- c(allcol[(1:nchr) %% 2 == 1], allcol[(1:nchr) %% 2 == 0])
+  # vector for color by snp
+  snpcol <- character(nrow(gwastab))
+  for(i in 1:nchr){
+    snpcol[gwastab$Chromosome == chrnames[i]] <- allcol[i]
+  }
+  
+  # draw plot
+  par(mar = c(3.1, 3.1, 1.1, 1.1), mgp = c(2, 0.5, 0))
+  plot(transp, col = snpcol, pch = 16, 
+       xlab = "Genomic location", ylab = "-log10(p)")
+  abline(h = threshold.lines, lty = 2, col = "darkgrey")
+}
+```
+
+```{r}
+# Using the R base graphics and viridis
+manhattan(yieldGWAS, threshold.lines = c(5, 8))
+```
+
+```{r echo = FALSE}
+# tidyverse version
+manhattan2 <- function(gwastab, threshold.lines = numeric(0)){
+  require(dplyr)
+  require(ggplot2)
+  
+  gwastab <- gwastab %>%
+    arrange(Chromosome, Position) %>% # sort by chromosome and position
+    filter(P.value < 0.05) %>% # filter SNPs not worth plotting (optional)
+    mutate(Log10.P = -log10(P.value)) # transform P values
+  
+  gwastab$index <- 1:nrow(gwastab)
+  
+  p <- ggplot(gwastab, aes(x = index, y = Log10.P, color = factor(Chromosome))) +
+    geom_point() +
+    xlab("Genomic position") +
+    ylab("-10log(P)") + 
+    scale_color_brewer(type = "qual", palette = "Paired") +
+    labs(color = "Chromosome")
+  # add significance threshold lines
+  for(l in threshold.lines){
+    p <- p + geom_hline(yintercept = l, linetype = "dashed")
+  }
+  
+  # draw plot
+  p
+}
+```
+
+```{r}
+# using ggplot
+manhattan2(yieldGWAS, threshold.lines = c(5, 8))
+```
+
+```{r echo = FALSE}
+# function to make a manhattan plot from GAPIT results.
+# this version uses the R base. ## fancier version.
+manhattan3 <- function(gwastab, threshold.lines = numeric(0), 
+                       label.cutoff = 5){
+  require(viridis)
+  
+  # order on genome; x values for plotting
+  plotorder <- order(gwastab$Chromosome, gwastab$Position)
+  gwastab <- gwastab[plotorder,]
+  # filter SNPs not worth plotting (not required for full credit)
+  gwastab <- gwastab[gwastab$P.value < 0.05,]
+  # transform the p-values
+  transp <- -log10(gwastab$P.value)
+  
+  # make colors for chromosomes
+  chrnames <- sort(unique(gwastab$Chromosome))
+  nchr <- length(chrnames) # number of chromosomes
+  allcol <- viridis(nchr)
+  # shuffle the colors (this is fancier than needed for full credit)
+  allcol <- c(allcol[(1:nchr) %% 2 == 1], allcol[(1:nchr) %% 2 == 0])
+  # vector for color by snp
+  snpcol <- character(nrow(gwastab))
+  for(i in 1:nchr){
+    snpcol[gwastab$Chromosome == chrnames[i]] <- allcol[i]
+  }
+  
+  # draw plot
+  par(mar = c(3.1, 3.1, 1.1, 1.1), mgp = c(2, 0.5, 0))
+  plot(transp, col = snpcol, pch = 16, axes = FALSE,
+       xlab = "Genomic location", ylab = "-log10(p)")
+  abline(h = threshold.lines, lty = 2, col = "darkgrey")
+  axis(2) # add in standard y-axis
+  
+  # label points above the cutoff
+  tolabel <- which(transp >= label.cutoff)
+  text(tolabel, transp[tolabel], gwastab$SNP[tolabel])
+  
+  # axis with chromosome labels
+  ticklocs <- numeric(nchr) # set up empty vector
+  for(i in 1:nchr){
+    ticklocs[i] <- median(which(gwastab$Chromosome == chrnames[i]))
+  }
+  axis(1, at = ticklocs, labels = as.character(chrnames))
+}
+```
+
+```{r}
+# fancy version
+manhattan3(yieldGWAS, threshold.lines = c(5, 8), label.cutoff = 5)
+```
+

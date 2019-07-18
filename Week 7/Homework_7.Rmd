@@ -1,0 +1,53 @@
+---
+title: "Homework 7"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+## Masked objects
+
+Load `dplyr`.
+
+```{r, warning = FALSE, echo = TRUE}
+library(dplyr)
+```
+
+Does the namespace of `dplyr` overalap with namespaces that you already
+have loaded?  For which packages and functions?
+
+```{r}
+# The `filter` and `lag` functions from the `stats` package and the
+# `intersect`, `setdiff`, `setequal`, and `union` functions from `base`
+# are masked because those names are also used in the `dplyr` namespace.
+```
+
+Look at `?intersect` and pull up the help pages for the base version and
+the dplyr version.  If you want to use the base version but you have
+`dplyr` loaded, will it cause a problem?
+
+```{r}
+# It looks like it would probably be okay.  Although the `dplyr` version of
+# `intersect` would get used if you didn't specify which version you wanted,
+# the default method of the `dplyr` version is to call the `base` version.
+```
+
+Look at `?filter` and pull up the help pages for the `stats` version and
+the `dplyr` version.  If you want to use the base version but you have
+`dplyr` loaded, will it cause a problem?
+
+```{r}
+# In this case it probably would, since the two filter functions take different
+# arguments and do different things.
+```
+
+With `dplyr` loaded, how would you call the non-`dplyr` version of one of
+these functions?
+
+```{r eval = FALSE}
+# Example for `filter`
+stats::filter(1:100, c(1,1,1))
+```
+

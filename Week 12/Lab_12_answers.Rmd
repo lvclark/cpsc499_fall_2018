@@ -1,0 +1,195 @@
+---
+title: "Lab 12"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Microsatellite markers
+
+Ten to twenty years ago, a very popular type of marker in crop species was
+microsatellites, also known as simple sequence repeats (SSRs).  These are
+small regions of the genome the mutate rapidly due to the presence of a
+repetitive sequence, generally two to five bp long.  The repetition causes
+errors in DNA replication, resulting in many alleles with more or fewer
+repeats.  For example "AGAGAG" could easily mutate to "AGAGAGAG".
+
+Researchers would sequence some subset of the genome that had been enriched
+for these repetitive sequences, design PCR primers flanking the sequences, then
+test the primers in a diversity panel to see that there was actual variation.
+The PCR products would be run on a polyacrylamide gel or subjected to capillary
+electrophoresis to determine the exact fragment size.
+
+An example is some SSR primers for tomato published by Areshchenkova & Ganal
+(2002; https://doi.org/10.1007/s00122-001-0775-2).  Below are the primers
+that were designed from RNA sequence, and therefore are likely to be in genes.
+
+```{r echo = TRUE}
+est_ssrs <- data.frame(Marker_name = c("TC1843", "TC1107", "TC948", "TC11",
+                                       "TC461", "EST245053", "EST253712", "EST258529",
+                                       "EST248494", "EST259379", "EST268259"),
+                       Forward_primer = c("ATGGAGTTTCAGGACCACTT", "TCCATCTCTCTCTAGACCTTTCT",
+                                          "TTTTCGCGTTAAGAGATGTT", "TCAACACAGAGAAAATAGGCA",
+                                          "GGCTGCCTCGGACAATG", "CCATTTAAATGACCCTATGCT",
+                                          "GAAATGAAGCTCTGACATCAAA", "AACACCCTTTATTCAGATTCC",
+                                          "CTGAAACGAGACAGAGGAAG", "TTGGTCTCCCTCTTTATGCC",
+                                          "GCTGCTCCTATTGGTTACCA"),
+                       Reverse_primer = c("AGGATGATTCAATATATCCGC", "TTCTTAAATCCTCTCACTCA",
+                                          "CCGCCATACTGATACGATAG", "CAGCTTGCTCAGCCAGC",
+                                          "TTATTGCCACGTAGTCATGA", "AATCAAAAAGAATCTAAGCCCT",
+                                          "TCATTGCTTGCATATGTTCATG", "GCATAAAAATGTTAAAGGGG",
+                                          "AGCTGAGTACGTCTCCCATG", "GGCTTCATTGATGAACCCAT",
+                                          "TCTCCTTATTTGGATTGGCC"),
+                       stringsAsFactors = FALSE)
+```
+
+Now 16 years later, we have the full annotated genome sequence, and would want
+to be able to cross-reference QTL mapping results with these markers to the
+genome.  What genes are these markers actually in?
+
+## Finding primer binding sites
+
+Load the packages needed for today.
+
+```{r message = FALSE, echo = TRUE, warning = FALSE}
+library(Biostrings)
+library(GenomicFeatures)
+```
+
+So that we can use `vmatchPattern`, we'll actually load the tomato genome
+as a `DNAStringSet` rather than an `FaFile`.  We'll also load the `TxDb`
+object from lecture.
+
+```{r echo = TRUE}
+tomato_genome <- readDNAStringSet("Slycopersicum_390_v2.5.fa")
+tomato_genome
+# strip off whitespace in names
+names(tomato_genome) <- gsub(" ", "", names(tomato_genome))
+
+tomato_TxDb <- loadDb("tomato_TxDb.sqlite")
+```
+
+**Turn in for the lab (3 points):** Make a function that accepts a forward and
+reverse primer sequence, and returns the following items:
+
+* A `GRanges` object indicating the start and end points of the PCR
+product(s) amplified by that pair of primers.
+* A character vector listing any overlapping genes.
+
+```{r}
+ssr_genes <- function(forward_prim, reverse_prim, genome_seq, annot,
+                      max_size = 1000){
+  forward_prim <- DNAString(forward_prim)
+  reverse_prim <- DNAString(reverse_prim)
+  
+  matches_f_top <- vmatchPattern(forward_prim, genome_seq)
+  count_f_top <- elementNROWS(matches_f_top)
+  matches_f_bot <- vmatchPattern(reverseComplement(forward_prim), genome_seq)
+  count_f_bot <- elementNROWS(matches_f_bot)
+  matches_r_top <- vmatchPattern(reverse_prim, genome_seq)
+  count_r_top <- elementNROWS(matches_r_top)
+  matches_r_bot <- vmatchPattern(reverseComplement(reverse_prim), genome_seq)
+  count_r_bot <- elementNROWS(matches_r_bot)
+  
+  # chromosomes to look at
+  chr_top <- which(count_f_top > 0 & count_r_bot > 0)
+  chr_bot <- which(count_f_bot > 0 & count_r_top > 0)
+  
+  # vectors to output to GRanges
+  seqnameout <- character(0)
+  startout <- integer(0)
+  endout <- integer(0)
+  strandout <- character(0)
+  
+  # loop through potential matches
+  for(i in chr_top){
+    left <- start(matches_f_top[[i]]) # potential starts of PCR product
+    right <- end(matches_r_bot[[i]])  # potential ends of PCR product
+    for(l in left){
+      for(r in right){
+        if(r - l <= max_size && r > l){
+          startout <- c(startout, l)
+          endout <- c(endout, r)
+          seqnameout <- c(seqnameout, names(genome_seq)[i])
+          strandout <- c(strandout, "+")
+        }
+      }
+    }
+  }
+  for(i in chr_bot){
+    left <- start(matches_r_top[[i]]) # potential starts of PCR product
+    right <- end(matches_f_bot[[i]])  # potential ends of PCR product
+    for(l in left){
+      for(r in right){
+        if(r - l <= max_size && r > l){
+          startout <- c(startout, l)
+          endout <- c(endout, r)
+          seqnameout <- c(seqnameout, names(genome_seq)[i])
+          strandout <- c(strandout, "-")
+        }
+      }
+    }
+  }
+  
+  # set up GRanges object
+  grout <- GRanges(seqnameout,
+                   IRanges(startout, endout),
+                   strand = strandout)
+  # find nearby genes
+  neargenes <- mcols(transcriptsByOverlaps(annot, grout))$tx_name
+  
+  return(list(PCR_range = grout, Genes = neargenes))
+}
+```
+
+```{r echo = TRUE}
+p1f <- est_ssrs$Forward_primer[1]
+p1r <- est_ssrs$Reverse_primer[1]
+
+loc1 <- ssr_genes(p1f, p1r, tomato_genome, tomato_TxDb)
+loc1
+
+p8f <- est_ssrs$Forward_primer[8]
+p8r <- est_ssrs$Reverse_primer[8]
+
+loc8 <- ssr_genes(p8f, p8r, tomato_genome, tomato_TxDb)
+loc8
+
+p9f <- est_ssrs$Forward_primer[9]
+p9r <- est_ssrs$Reverse_primer[9]
+
+loc9 <- ssr_genes(p9f, p9r, tomato_genome, tomato_TxDb)
+loc9
+```
+
+**Hints**
+
+* You should run `vmatchPattern` four times, for the forward and reverse primer
+and the reverse complement of both.
+* Look for chromosomes where there is a match for the forward primer and the reverse
+complement of the reverse primer, OR a match for the reverse primer and the reverse
+complement of the forward primer.
+* The biggest expected PCR product, according to the manuscript, is 567 basepairs.
+It might be helpful to only report PCR products that are 1000 bp or less.
+* Keep in mind that there could be multiple hits on one chromosome, or multiple
+chromosomes with hits.
+* For a PCR product to amplify, the primer on the top strand needs to be on the 
+left and the primer on the bottom strand needs to be on the right.  I.e., the
+primer for which you had to take the reverse complement should be the one with
+a higher position value.
+* My solution is not terribly efficient and involves some loops and `if` statements.
+* If the forward primer is on the top strand, the strand for the PCR product is 
+`+`, and if the forward primer is on the bottom strand, the strand for the PCR
+product is `-`.
+
+## Homework, or if you have extra time in lab
+
+You could potentially instead have the genome as a `FaFile`, and use `transcripts`
+with `getSeq` to just get the transcript sequences, leaving you with much less
+sequence to search.  Try that out.
+
+You might also want to look for non-specific products that could happen if
+the annealing temperature is too low or the salt concentration too high. Add
+an argument to the function to allow for mismatches in primer sequence.

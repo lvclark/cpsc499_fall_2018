@@ -1,0 +1,184 @@
+---
+title: "Lab 7"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+## WorldClim data
+
+WorldClim (www.worldclim.org) provides current, historical, and future predicted
+climate data for use in ecological and GIS studies.  I downloaded several files
+from that site for you to work with today.
+
+```{r echo = TRUE}
+# Average June temperature 1970-2000, deg. C
+juneTempsFile <- "wc2.0_10m_tavg_06.tif"
+# Average June temperature 1960-1990, deg. C * 10
+juneTempsFile2 <- "tmean6.bil"
+# Average annual temperature 1970-2000, deg. C
+avgTempFile <- "wc2.0_bio_10m_01.tif"
+```
+
+The packages "raster" and "rgdal" can be used for importing and manipulating this
+sort of data.
+
+```{r eval = FALSE, echo = TRUE}
+install.packages("raster")
+install.packages("rgdal")
+```
+
+```{r, warning = FALSE, echo = TRUE}
+library(raster)
+library(rgdal)
+```
+
+We can preview the data with `plot`.
+
+```{r, echo = TRUE, warning = FALSE}
+library(viridis)
+plot(raster(juneTempsFile), col = plasma(255))
+```
+
+## Number formats in the WorldClim datasets
+
+For each of the three file names, use the function `GDALinfo` to learn more
+about the file's contents.  Pay particular attention to the format listed
+under "GDtype".
+
+**Question 1 to turn in:**  What does the number after "Int" or "Float" mean?
+Which file(s) contain numbers in a format that matches one of the formats in
+the R base?  Given the number format of "tmean6.bil", why do you think that
+file contains degrees Celsius multiplied by ten, while the other files just
+contain degrees Celsius without a multiplier?
+
+```{r eval = FALSE}
+# The number indicates how many bits the format uses.  "wc2.0_bio_10m_01.tif"
+# uses 64-bit floats (double-precision floating point numbers), which is the
+# 'numeric' class and 'double' type in the R base.  The other two files use
+# formats not found in the R base; 32-bit floats (single-precision floating
+# point) for "wc2.0_10m_tavg_06.tif" and 16-bit integers for
+# "tmean6.bil".  Because "tmean6.bil" stores temperatures in an integer format,
+# by multipling by ten it allows temperatures to be stored precisely in 
+# 1/10 degree increments.
+
+GDALinfo(juneTempsFile)
+GDALinfo(juneTempsFile2)
+GDALinfo(avgTempFile)
+```
+
+## Integer math
+
+Let's extract the average June temperature from 1960-1990 for the collection
+locations in our *Miscanthus sinensis* data set from Week 1.
+
+```{r echo = TRUE}
+msiyield <- read.csv("Miscanthus_sinensis_yield.csv")
+msiXY <- as.matrix(msiyield[,3:2])
+colnames(msiXY) <- c("x", "y")
+# remove rows without spatial coordinates
+msiXY <- msiXY[!is.na(msiXY[,1]), ]
+
+# make raster object for tmean6.bil
+juneTempsRaster2 <- raster(juneTempsFile2)
+# extract cell numbers
+msiCells <- cellFromXY(juneTempsRaster2, msiXY)
+
+# get temperatures
+msiJuneTemp <- getValues(juneTempsRaster2)[msiCells]
+msiJuneTemp
+typeof(msiJuneTemp)
+```
+
+Say you want to convert degrees to growing degrees, so that you can calculate
+growing degree days.  Typically you subtract 10°C from a 
+temperature in order to convert to growing degrees (GD), since many crops will 
+not grow below 10°C.  Temperatures below 10°C are also converted to 0 GD, and 
+temperatures above 30°C are capped at 20 GD since most crops do not have 
+increased productivity above that temperature.
+
+* 5°C --> 0 GD
+* 10°C --> 0 GD
+* 15°C --> 5 GD
+* 30°C --> 20 GD
+* 35°C --> 20 GD
+* etc.
+
+The values that we got from the WorldClim file are integers, indicating 
+temperature times ten.  Pretend that we want to keep them that way in order to 
+save memory and processing time.
+
+**Question 2 to turn in:** Make a function to convert degrees Celsius to 
+growing degrees.  The output should still be in integer format and still
+multiplied by ten, like the input.
+
+```{r}
+# function to take temperature, in degrees C times 10, and convert it to
+# growing degrees, also in degrees C times 10, in integer format.
+growingDegreesTimesTen <- function(temp){
+  gd <- temp - 100L
+  gd[gd < 0L] <- 0L
+  gd[gd > 200L] <- 200L
+  return(gd)
+}
+```
+
+```{r echo = TRUE}
+myGD <- growingDegreesTimesTen(msiJuneTemp)
+myGD[1:15]
+typeof(myGD)
+```
+
+
+**Hints**
+
+You should be able to keep the numbers in integer format without using 
+`as.integer`.
+
+You can use Boolean indexing to identify and replace values below zero or
+above 20.
+
+Remember that since everything is mutliplied by 10, you actually are 
+subtracting 100 rather than 10, and capping at 200 rather than 20.
+
+## Package-specific classes
+
+We used some specialized functions to import and examine GIS data.  The object
+storing the data is a specialized class for that type of data.  In addition to
+including function definitions, the `raster` package includes class definitions.
+
+In lecture we talked about how `plot` is a generic function.  It must have a 
+method for whatever class we have our GIS data in, since we were able to
+use `plot` directly on that object.
+
+Try to find the help page for the class, as well as the help page for the `plot`
+method.
+
+**Question 3 to turn in:** What class is `juneTempsRaster2`?  What code pulls
+up the help page for the `plot` method?
+
+```{r eval = FALSE}
+## The class of `juneTempsRaster2` is `"RasterLayer"`.
+class(juneTempsRaster2)
+
+## To get the help page for the `plot` method:
+?`plot,Raster,ANY-method`
+# or
+?`plot,Raster,Raster-method`
+```
+
+
+**Hints**
+
+The class name itself has a "package" attribute indicating what package the
+class came from.  Be sure not to confuse the class name and package name.
+
+The class is a particular type of class called S4, which is a system for
+package developers to add new classes.  So far in lecture we have mostly looked
+at S3 classes and methods, so the documentation might be slightly different
+from what you are used to.
+
+To find the help pages, you might begin typing and then look at the 
+auto-complete suggestions.

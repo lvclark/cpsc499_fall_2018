@@ -1,0 +1,17 @@
+*.Rproj
+*.Rproj.user
+*.pptx
+
+# Files I don't have the right to redistribute
+Week 4/Osativa*
+Week 7/tmean*
+Week 7/wc2.0*
+Week 12/Slycopersicum*
+Week 13/Osativa*
+Week 14/Sbicolor*
+Week 14/Msinensis*
+Week 14/SRR*
+
+# Files too big for GitHub
+Week 14/Msi_genotypes2.vcf.bgz
+Week 5/Msinensis_chr01genes.vcf

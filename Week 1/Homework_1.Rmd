@@ -1,0 +1,161 @@
+---
+title: "Homework 1"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, eval = FALSE)
+```
+
+## Dataset for this homework
+
+These homeworks are not graded, but are provided to give you extra practice.
+
+Let's explore the `airquality` example dataset that comes with R.
+
+```{r echo = TRUE}
+data(airquality)
+```
+
+Remember that you can learn more about it by reading its help page:
+
+```{r echo = TRUE, eval = FALSE}
+?airquality
+```
+
+## Exercises
+
+(1) Use some of the functions that you have learned for previewing the data frame.
+How many rows and columns does it have?  What is the data type of each column?
+What is the name of each column?
+
+```{r}
+head(airquality)
+str(airquality)
+```
+
+(2) Sort the data frame by temperature, then by wind speed.
+
+```{r}
+# in the R base:
+airquality[order(airquality$Temp, airquality$Wind),]
+
+# in dplyr
+library(dplyr)
+
+airquality %>%
+  arrange(Temp, Wind)
+
+## Note that both of those commands display the sorted data, but don't change
+## the original data frame.
+```
+
+(3) Make a new data frame from the original, containing only the observations
+from August and September.  Omit the Wind and Temp columns from this new data frame.
+
+```{r}
+# in the R base
+# (Your code might look slightly different but accomplish the same thing.)
+airquality_sub <- airquality[airquality$Month %in% c(8,9),
+                             c("Ozone", "Solar.R", "Month", "Day")]
+
+# in dplyr
+airquality_sub <- airquality %>%
+  filter(Month %in% c(8,9)) %>%
+  select(Ozone, Solar.R, Month, Day)
+```
+
+(4) Make a scatter plot of ozone vs. wind speed.
+
+```{r}
+# in the R base
+plot(airquality$Wind, airquality$Ozone)
+```
+
+```{r}
+# in ggplot2
+library(ggplot2)
+ggplot(airquality, aes(x = Wind, y = Ozone)) +
+  geom_point()
+```
+
+(5) Within each month, get the mean of the first four columns (Ozone, Solar.R, 
+Wind, and Temp).  Since there are some missing data, you should set the 
+`na.rm` argument of `mean` to `TRUE`.
+
+```{r}
+# in the R base; there is one function called `by` that we haven't covered yet,
+# that works like tapply but on data frames.
+by(airquality[,1:4], airquality$Month, colMeans, na.rm = TRUE)
+
+# or we could use tapply on individual columns
+tapply(airquality$Ozone, airquality$Month, mean, na.rm = TRUE)
+tapply(airquality$Solar.R, airquality$Month, mean, na.rm = TRUE)
+tapply(airquality$Wind, airquality$Month, mean, na.rm = TRUE)
+tapply(airquality$Temp, airquality$Month, mean, na.rm = TRUE)
+
+# in dplyr:
+airquality %>%
+  group_by(Month) %>%
+  summarize(mean_ozone = mean(Ozone, na.rm = TRUE),
+            mean_solar.r = mean(Solar.R, na.rm = TRUE),
+            mean_wind = mean(Wind, na.rm = TRUE),
+            mean_temp = mean(Temp, na.rm = TRUE))
+```
+
+(6) Extract a vector of ozone values, but only for days where the solar
+radiation was below 100 in the month of May.
+
+```{r}
+# Use `which` rather than direct Boolean indexing, because there are some
+# missing data.
+airquality$Ozone[which(airquality$Solar.R < 100 & airquality$Month == 5)]
+
+# with dplyr:
+filter(airquality, Solar.R < 100, Month == 5)$Ozone
+```
+
+(7) Say you want to take the mean of a vector called `myvect`, and you want to
+ignore `NA` (missing) values.  Which of the following function calls will work?
+Which won't?  Why?
+
+```{r echo = TRUE, eval = FALSE}
+mean(myvect, TRUE)             # 1
+mean(myvect, na.rm = TRUE)     # 2
+mean(na.rm = TRUE, x = myvect) # 3
+mean(myvect, 0, TRUE)          # 4
+mean(x = myvect, na.rm = TRUE) # 5
+```
+
+```{r}
+# 1 won't work; `TRUE` gets passed to `trim`, the second argument.
+# 2 will work; myvect gets passed to x as the first argument, and TRUE is
+# passed to the correct named argument.
+# 3 will work; both arguments are named, so the order doesn't matter.
+# 4 will work; arguments are not named but are in the correct order.
+# 5 will work, like # 3.
+```
+
+(8) Say you want to sort `airquality` by Day, and so you write the following
+code:
+
+```{r echo = TRUE}
+airquality %>%
+  arrange(Day)
+```
+
+However, when you run
+
+```{r echo = TRUE}
+head(airquality)
+```
+
+you see that the data frame is still in the original order.
+
+Rewrite the code to permanently sort the data frame for future use.
+
+```{r}
+airquality <- airquality %>%
+  arrange(Day)
+```
+

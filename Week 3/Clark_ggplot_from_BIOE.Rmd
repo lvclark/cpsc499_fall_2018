@@ -1,0 +1,405 @@
+---
+title: 'R lab 4: Graphing with ggplot2'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Packages for today
+
+Load the following packages.  Use `install.packages` if they aren't on your
+computer already.
+
+```{r}
+library(viridis) # this has some nice color-blind-friendly color gradients
+library(ggplot2) # this will make plotting much easier
+```
+
+Also read in our *Miscanthus sinensis* dataset.
+
+```{r}
+msi_data <- read.csv("Miscanthus_sinensis_yield.csv", row.names = 1)
+```
+
+## Intro
+
+A week ago we made some plots of our data using the R base graphics system.
+Plots made that way are highly customizable, just not in a way that is very
+user-friendly.  For example, here is what I would do if I wanted to plot
+biomass yield versus plant height and then color by stem diameter:
+
+```{r}
+minDiam <- min(msi_data$Stem.diameter, na.rm = TRUE)
+maxDiam <- max(msi_data$Stem.diameter, na.rm = TRUE)
+stemDiamIndex <- round((msi_data$Stem.diameter - minDiam)/
+                         (maxDiam - minDiam) * 100) + 1
+plot(msi_data$Plant.height, msi_data$Biomass.yield,
+     col = viridis(101)[stemDiamIndex],
+     xlab = "Plant height", ylab = "Biomass yield")
+```
+
+And I don't even get a legend for what the colors mean.  I would have to 
+build that manually.
+
+Here is the same plot using the package `ggplot2`
+
+```{r}
+ggplot(msi_data) +
+  geom_point(aes(x = Plant.height, y = Biomass.yield,
+                 color = Stem.diameter)) +
+  scale_color_viridis()
+```
+
+So, for this lesson we'll continue using `ggplot2` since we can cover a lot
+more ground in terms of different kinds of plots!
+
+## Syntax of ggplot2
+
+When you create a plot with `ggplot2`, the first part of the expression is
+always a call to the function `ggplot`.  Typically the only argument you
+give `ggplot` is the data frame with the data that you want to plot.  The
+call to `ggplot` is always followed by a `+` sign.
+
+Next, we add a *geometry* to the expression.  There are a bunch of functions
+in `ggplot2` that start with `geom` and can go here.  In the lower right part
+of your RStudio screen, click "Packages", then "ggplot2" to see a list of the
+different geometries that are available.
+
+Either within the call to `ggplot` or within the geometry function, we need to
+specify the *aesthetics* using the `aes` function.  This is where we specify
+how our variables should correspond to different aspects of the plot.
+
+There are a few more things that we can add to the expression after that,
+and we'll get into them below.
+
+## More about aesthetics
+
+Notice that every argument we pass to `aes` is a column name from our data
+frame.  We used the arguments `x`, `y`, and `color`, but more are available,
+and can be found at `?geom_point`.  Say we wanted shapes for the different
+genetic groups.  We can only get shapes for six different groups, so we'll
+eliminate some.
+
+```{r}
+ggplot(msi_data[msi_data$Genetic.group %in% c("S Japan", "N Japan", "SE China/tropical",
+                                              "Yangtze-Qinling", "Sichuan", 
+                                              "Korea/N China"), ]) +
+  geom_point(aes(x = Plant.height, y = Biomass.yield,
+                 color = Stem.diameter, shape = Genetic.group)) +
+  scale_color_viridis()
+```
+
+We had color for stem diameter, but how about size for number of stems?
+
+```{r}
+ggplot(msi_data) +
+  geom_point(aes(x = Plant.height, y = Biomass.yield,
+                 color = Stem.diameter, size = Number.of.stems)) +
+  scale_color_viridis()
+```
+
+Hmm, it might be more readable if there were a black line around each circle.
+In R that's a different shape.  If you Google "R pch" you will see a 
+set of numbered shapes that can be used for plotting.  21 through 25 are
+shapes with outline and fill colors.  To set an aesthetic for the whole plot,
+rather than having it correspond to a variable, we will put it within the
+call to `geom_point` rather than the call to `aes`.
+
+```{r}
+ggplot(msi_data) +
+  geom_point(aes(x = Plant.height, y = Biomass.yield,
+                 color = Stem.diameter, size = Number.of.stems),
+             shape = 21) +
+  scale_color_viridis()
+```
+
+Whoops, this caused stem diameter to control the outline color.  We can use
+`fill` instead to control the fill color.
+
+```{r}
+ggplot(msi_data) +
+  geom_point(aes(x = Plant.height, y = Biomass.yield,
+                 fill = Stem.diameter, size = Number.of.stems),
+             shape = 21) +
+  scale_fill_viridis()
+```
+
+To make the circles semi-transparent, we can adjust the `alpha` aesthetic.
+
+```{r}
+ggplot(msi_data) +
+  geom_point(aes(x = Plant.height, y = Biomass.yield,
+                 fill = Stem.diameter, size = Number.of.stems),
+             shape = 21, alpha = 0.5) +
+  scale_fill_viridis()
+```
+
+So, we can see that the tallest and highest-yielding plants didn't have the most
+stems, but they did tend to have thick stems.
+
+**Exercise 1**
+
+Try having one variable control the shape outline color, and another control the
+fill color.
+
+```{r echo = FALSE, eval = FALSE}
+ggplot(msi_data) +
+  geom_point(aes(x = Plant.height, y = Biomass.yield,
+                 fill = Stem.diameter, color = Number.of.stems),
+             shape = 21, alpha = 0.5, size = 2) +
+  scale_fill_viridis()
+```
+
+### Transforming variables
+
+There are a lot of low-yielding plants and just a few very high yielding plants.
+Yield also results from the plant's size in three-dimensions, whereas height and
+stem diameter are one-dimensional measurements.  So maybe it would be easier to 
+visualize the cube root of yield rather than yield itself.  We can do that 
+transformation right in the call to `aes`.
+
+```{r}
+ggplot(msi_data) +
+  geom_point(aes(x = Plant.height, y = Biomass.yield ^ (1/3),
+                 fill = Stem.diameter, size = Number.of.stems),
+             shape = 21, alpha = 0.5) +
+  scale_fill_viridis()
+```
+
+## Facets
+
+There's still a lot of information in that plot, and we can't see everything.
+Maybe we want to split it up by genetic group.  We can do that by adding 
+*facets*, here with a function called `facet_wrap`.  The `~` sign is needed,
+because a formula is used to generate the facets, even if it is just one
+variable.
+
+```{r}
+ggplot(msi_data[msi_data$Genetic.group %in% c("S Japan", "N Japan", "SE China/tropical",
+                                              "Yangtze-Qinling", "Sichuan", 
+                                              "Korea/N China"), ]) +
+  geom_point(aes(x = Plant.height, y = Biomass.yield ^ (1/3),
+                 fill = Stem.diameter, size = Number.of.stems),
+             shape = 21, alpha = 0.5) +
+  scale_fill_viridis() +
+  facet_wrap(~ Genetic.group)
+```
+
+We can also make facets based on a Boolean vector.
+
+```{r}
+ggplot(msi_data) +
+  geom_point(aes(x = Plant.height, y = Biomass.yield ^ (1/3),
+                 fill = Stem.diameter, size = Number.of.stems),
+             shape = 21, alpha = 0.5) +
+  scale_fill_viridis() +
+  facet_wrap(~ Number.of.stems < 250)
+```
+
+What if we want to facet using two variables?  Then use `facet_grid`.
+
+```{r}
+ggplot(msi_data) +
+  geom_point(aes(x = Plant.height, y = Biomass.yield ^ (1/3),
+                 fill = Stem.diameter, size = Number.of.stems),
+             shape = 21, alpha = 0.5) +
+  scale_fill_viridis() +
+  facet_grid(Stem.diameter < 6 ~ Number.of.stems < 250)
+```
+
+**Exercise 2**
+
+Make facets based on the latitude and longitude of origin of the plants.
+
+```{r echo = FALSE, eval = FALSE}
+ggplot(msi_data) +
+  geom_point(aes(x = Plant.height, y = Biomass.yield ^ (1/3),
+                 fill = Stem.diameter, size = Number.of.stems),
+             shape = 21, alpha = 0.5) +
+  scale_fill_viridis() +
+  facet_grid(Latitude > 0 ~ Longitude > 0)
+```
+
+## Additional plot geometries
+
+If you look at the list of functions for `ggplot2`, (available under the "Packages"
+tab in the lower right), you will find many `geom` functions in addition to 
+`geom_points`.  They can actually be layered on top of each other.  For example,
+we can add a curve showing the overall trend with `geom_smooth`.
+
+```{r}
+ggplot(msi_data) +
+  geom_point(aes(x = Plant.height, y = Biomass.yield ^ (1/3),
+                 fill = Stem.diameter, size = Number.of.stems),
+             shape = 21, alpha = 0.5) +
+  scale_fill_viridis() +
+  geom_smooth(aes(x = Plant.height, y = Biomass.yield ^ (1/3)))
+```
+
+This can be forced to be a trendline made from linear modeling:
+
+```{r}
+ggplot(msi_data) +
+  geom_point(aes(x = Plant.height, y = Biomass.yield ^ (1/3),
+                 fill = Stem.diameter, size = Number.of.stems),
+             shape = 21, alpha = 0.5) +
+  scale_fill_viridis() +
+  geom_smooth(aes(x = Plant.height, y = Biomass.yield ^ (1/3)),
+              method = "lm")
+```
+
+An alternative to `geom_points` for really dense scatter plots is `geom_bin2d`.
+
+```{r}
+ggplot(msi_data) +
+  geom_bin2d(aes(x = Plant.height, y = Biomass.yield ^ (1/3)),
+             bins = 50)
+```
+
+Or `geom_density2d`:
+
+```{r}
+ggplot(msi_data) +
+  geom_point(aes(x = Plant.height, y = Biomass.yield ^ (1/3),
+                 size = Number.of.stems),
+             shape = 16, alpha = 0.5) +
+  geom_density2d(aes(x = Plant.height, y = Biomass.yield ^ (1/3)),
+                 color = "green")
+```
+
+If you want to see continuous distributions by groups, you can make a 
+violin plot with `geom_violin`.
+
+```{r}
+ggplot(msi_data) +
+  geom_violin(aes(x = Genetic.group, y = Plant.height))
+```
+
+To rotate it and make the labels more readable, I can use `coord_flip`.
+
+```{r}
+ggplot(msi_data) +
+  geom_violin(aes(x = Genetic.group, y = Plant.height)) +
+  coord_flip()
+```
+
+**Exercise 3**
+
+Make a violin plot of plant height, divided into two groups by stem diameter.
+
+```{r echo = FALSE, eval = FALSE}
+ggplot(msi_data) +
+  geom_violin(aes(x = Stem.diameter > 6, y = Plant.height))
+```
+
+```{r echo = FALSE, eval = FALSE}
+ggplot(msi_data) +
+  geom_violin(aes(x = cut_number(Stem.diameter, n = 4), y = Plant.height))
+```
+
+## Colors
+
+We have already used colors a little bit.  The default color scheme is a scale
+of light to dark blue, which we changed to a more visually dynamic scale using
+`scale_color_viridis` and `scale_fill_viridis`.  There are five color scales
+in the `viridis` package, called "magma", "inferno", "plasma", "viridis",
+and "cividis".  All are designed to be color-blind friendly.
+
+```{r}
+ggplot(msi_data) +
+  geom_point(aes(x = Plant.height, y = Biomass.yield ^ (1/3),
+                 fill = Stem.diameter, size = Number.of.stems),
+             shape = 21, alpha = 0.5) +
+  scale_fill_viridis(option = "plasma")
+```
+
+If you need colors for discrete data, like our genetic groups, there are some
+good ones provided by Color Brewer.
+
+```{r}
+ggplot(msi_data) +
+  geom_point(aes(x = Plant.height, y = Biomass.yield ^ (1/3),
+                 fill = Genetic.group),
+             shape = 21, alpha = 0.8, size = 2) +
+  scale_fill_brewer(type = "qual", palette = "Paired")
+```
+
+Here is a good cheat sheet for making colors in R:
+
+https://www.nceas.ucsb.edu/~frazier/RSpatialGuides/colorPaletteCheatsheet.pdf
+
+There are lots of named colors in R, as listed on that sheet.  We can use
+those named colors within the geometry function if we want everything to be
+the same color.
+
+```{r}
+ggplot(msi_data) +
+  geom_point(aes(x = Plant.height, y = Biomass.yield ^ (1/3)),
+             shape = 16, alpha = 0.5, size = 2, color = "magenta")
+```
+
+You can also build your own color schemes.
+
+```{r}
+ggplot(msi_data) +
+  geom_point(aes(x = Plant.height, y = Biomass.yield ^ (1/3),
+                 fill = Genetic.group),
+             shape = 21, alpha = 0.8, size = 2) +
+  scale_fill_manual(values = c("SE China/tropical" = "purple",
+                    "Sichuan" = "orange",
+                    "Yangtze-Qinling" = "darkgreen",
+                    "Ornamental" = "yellow3",
+                    "US naturalized" = "yellow4",
+                    "N Japan" = "blue",
+                    "S Japan" = "yellow",
+                    "Korea/N China" = "red",
+                    "M. sacchariflorus 2x" = "cyan",
+                    "M. sacchariflorus 4x" = "cyan",
+                    "M. xgiganteus 2x" = "cyan3",
+                    "M. xgiganteus 3x" = "cyan3"))
+```
+
+And your own color gradients.
+
+```{r}
+ggplot(msi_data) +
+  geom_point(aes(x = Plant.height, y = Biomass.yield ^ (1/3),
+                 fill = Stem.diameter, size = Number.of.stems),
+             shape = 21, alpha = 0.5) +
+  scale_fill_gradient(low = "turquoise", high = "tomato")
+```
+
+What if you need to match a particular color from another piece
+of software?  If you have the RGB values, you can make a string that
+will give you that color.
+
+```{r}
+rgb(100, 30, 210, maxColorValue = 255)
+```
+
+Or you can do the opposite, if you want to recreate a color in other
+software that you used in R.
+
+```{r}
+col2rgb("turquoise")
+```
+
+**Exercise 4**
+
+Generate a character string representing colors with the RGB values
+200,0,40 and 0,220,200, respectively.  Make a scale between these
+two colors using `scale_fill_gradient`.  Use that gradient in a plot.
+
+```{r echo = FALSE, eval = FALSE}
+col1 <- rgb(200, 0, 40, maxColorValue = 255)
+col2 <- rgb(0, 220, 200, maxColorValue = 255)
+
+ggplot(msi_data) +
+  geom_point(aes(x = Plant.height, y = Biomass.yield ^ (1/3),
+                 fill = Stem.diameter, size = Number.of.stems),
+             shape = 21, alpha = 0.5) +
+  scale_fill_gradient(low = col1, high = col2)
+```
+
